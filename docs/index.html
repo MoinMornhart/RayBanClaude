@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RayBan Claude</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="RayBan Claude: Ray-Ban Meta Gen 2 und iPhone als Augen und Ohren von Claude Code – läuft mit Windows-PCs, kostenlos, Open Source.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>html{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+</head>
+<body>
+<style>
+/* Layout: Sucher-Konzept – Hero mit Kamerasucher (Hochformat wie der Brillen-Stream), darunter ruhige Leseabschnitte mit HUD-Beschriftungen */
+:root {
+  --bg: #eef1f3;
+  --surface: #ffffff;
+  --ink: #15191e;
+  --muted: #56616b;
+  --line: #d4dade;
+  --amber: #b85c17;
+  --amber-soft: #f7e6d6;
+  --hud: #0d7480;
+  --hud-soft: #d5ebed;
+  --ok: #2b7a4b;
+  --ok-soft: #dcefe3;
+  --warn: #9a6200;
+  --danger: #b3302a;
+  --danger-soft: #f6dcda;
+  --code-bg: #e4e9ec;
+  /* Kamerabild: in beiden Themes dunkel, wie ein echter Sucher */
+  --vf-bg: #0b0f13;
+  --vf-ink: #e8eef2;
+  --vf-dim: #9fb0bc;
+  --vf-hud: #6fd3da;
+  --vf-amber: #f2a35c;
+  --plate-a: #c9cfd4;
+  --plate-b: #9aa3ab;
+  --plate-ink: #1d2328;
+  --paper: #f4f1e8;
+  --paper-ink: #2a2723;
+  --sign-red: #c0392b;
+  --sign-green: #1f7a4a;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1216; --surface: #151b21; --ink: #e6ebef; --muted: #96a3ae; --line: #26313b;
+    --amber: #f0a15c; --amber-soft: #3a2513; --hud: #62cbd3; --hud-soft: #10313a;
+    --ok: #74d39c; --ok-soft: #12301f; --warn: #e9b752; --danger: #f08178; --danger-soft: #3a1714;
+    --code-bg: #1c242c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1216; --surface: #151b21; --ink: #e6ebef; --muted: #96a3ae; --line: #26313b;
+  --amber: #f0a15c; --amber-soft: #3a2513; --hud: #62cbd3; --hud-soft: #10313a;
+  --ok: #74d39c; --ok-soft: #12301f; --warn: #e9b752; --danger: #f08178; --danger-soft: #3a1714;
+  --code-bg: #1c242c; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 1rem/1.6 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--hud); text-underline-offset: 3px; }
+a:hover { color: var(--amber); }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 4px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.1; margin: 0; }
+h2 { font-size: clamp(1.6rem, 3.2vw, 2.25rem); font-weight: 700; letter-spacing: -0.015em; }
+h3 { font-size: 1.1rem; font-weight: 700; }
+p { margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+code { background: var(--code-bg); padding: 0.1em 0.4em; border-radius: 5px; }
+
+.page { max-width: 1120px; margin: 0 auto; }
+.hud-label {
+  font: 500 0.72rem/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--hud);
+}
+section.block { padding-block: clamp(48px, 7vw, 88px); border-top: 1px solid var(--line); display: grid; gap: 28px; }
+.block-head { display: grid; gap: 10px; max-width: 68ch; }
+.block-head p { color: var(--muted); font-size: 1.05rem; }
+
+/* ── Kopfzeile ── */
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 18px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font: 800 1.15rem/1 var(--font-display); color: var(--ink); text-decoration: none; }
+.lens { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--ink); position: relative; }
+.lens::after { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: var(--amber); }
+.toplinks { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.93rem; }
+.toplinks a { color: var(--muted); text-decoration: none; }
+.toplinks a:hover { color: var(--ink); }
+
+/* ── Hero ── */
+.hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: clamp(28px, 5vw, 64px); align-items: center; padding-block: clamp(24px, 5vw, 56px) clamp(48px, 7vw, 80px); }
+.hero-text { display: grid; gap: 22px; min-width: 0; }
+.hero h1 { font-size: clamp(2.6rem, 6.4vw, 4.6rem); font-weight: 800; letter-spacing: -0.035em; }
+.hero h1 em { font-style: normal; color: var(--amber); }
+.lede { font-size: clamp(1.05rem, 1.6vw, 1.22rem); color: var(--muted); max-width: 56ch; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px; }
+.fact { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 0.88rem; }
+.fact b { font-weight: 600; }
+.fact .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; font: 600 0.98rem/1 var(--font-body); padding: 13px 18px; border-radius: 10px; text-decoration: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn:hover { border-color: var(--amber); color: var(--ink); }
+.btn.primary { background: var(--amber); border-color: var(--amber); color: var(--bg); }
+.btn.primary:hover { filter: brightness(1.07); color: var(--bg); }
+.disclaimer { font-size: 0.82rem; color: var(--muted); max-width: 60ch; }
+
+/* ── Sucher ── */
+.viewfinder-wrap { display: grid; gap: 12px; justify-items: center; min-width: 0; }
+.viewfinder {
+  position: relative; width: min(100%, 360px); aspect-ratio: 9 / 16; max-width: 100%;
+  background: radial-gradient(120% 80% at 50% 30%, #1a2129 0%, var(--vf-bg) 70%);
+  border-radius: 28px; overflow: hidden; color: var(--vf-ink);
+  box-shadow: 0 30px 60px -30px rgba(10, 14, 18, 0.55), inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+.corner { position: absolute; width: 26px; height: 26px; border-color: var(--vf-hud); border-style: solid; opacity: 0.85; }
+.corner.tl { top: 14px; left: 14px; border-width: 2px 0 0 2px; }
+.corner.tr { top: 14px; right: 14px; border-width: 2px 2px 0 0; }
+.corner.bl { bottom: 14px; left: 14px; border-width: 0 0 2px 2px; }
+.corner.br { bottom: 14px; right: 14px; border-width: 0 2px 2px 0; }
+.vf-top { position: absolute; top: 22px; left: 50px; right: 50px; display: flex; justify-content: space-between; gap: 8px; font: 500 0.66rem/1.3 var(--font-mono); letter-spacing: 0.06em; color: var(--vf-dim); }
+.rec { display: inline-flex; align-items: center; gap: 5px; color: var(--vf-ink); }
+.rec::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #ff4d4d; animation: blink 1.6s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+.battery { display: inline-flex; align-items: center; gap: 4px; }
+.battery i { width: 18px; height: 9px; border: 1px solid var(--vf-dim); border-radius: 2px; position: relative; display: inline-block; }
+.battery i::after { content: ""; position: absolute; inset: 1px; right: 4px; background: var(--vf-hud); border-radius: 1px; }
+.vf-mode { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); font: 500 0.66rem/1 var(--font-mono); color: var(--vf-bg); background: var(--vf-hud); padding: 4px 9px; border-radius: 999px; letter-spacing: 0.05em; white-space: nowrap; }
+.scene { position: absolute; top: 74px; left: 22px; right: 22px; height: 40%; display: grid; place-items: center; }
+.focus { position: absolute; inset: 6% 10%; border: 1px dashed rgba(111, 211, 218, 0.45); border-radius: 6px; pointer-events: none; }
+.chat { position: absolute; left: 14px; right: 14px; bottom: 16px; display: grid; gap: 8px; }
+.bubble { font-size: 0.82rem; line-height: 1.45; padding: 9px 12px; border-radius: 14px; max-width: 92%; backdrop-filter: blur(6px); }
+.bubble small { display: block; font: 600 0.6rem/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; opacity: 0.75; }
+.bubble.user { justify-self: end; background: rgba(80, 140, 255, 0.28); border-bottom-right-radius: 4px; }
+.bubble.claude { justify-self: start; background: rgba(255, 255, 255, 0.1); border-bottom-left-radius: 4px; }
+.bubble.claude small { color: var(--vf-amber); opacity: 1; }
+.caret::after { content: "▍"; color: var(--vf-amber); animation: blink 1s steps(2, start) infinite; }
+.perm { justify-self: stretch; background: rgba(12, 18, 24, 0.82); border: 1px solid var(--vf-amber); border-radius: 14px; padding: 10px 12px; display: grid; gap: 8px; font-size: 0.78rem; }
+.perm strong { color: var(--vf-amber); font-weight: 600; }
+.perm code { background: rgba(255,255,255,0.08); color: var(--vf-ink); }
+.perm-actions { display: flex; gap: 8px; }
+.perm-actions button { flex: 1; font: 600 0.78rem/1 var(--font-body); padding: 8px; border-radius: 8px; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: var(--vf-ink); }
+.perm-actions button.allow { background: #2f8f55; border-color: #2f8f55; color: #fff; }
+.perm-result { font-size: 0.75rem; color: var(--vf-hud); }
+
+/* Szenen im Kamerabild */
+.plate { width: 100%; background: linear-gradient(160deg, var(--plate-a), var(--plate-b)); color: var(--plate-ink); border-radius: 6px; padding: 12px 14px; font: 500 0.66rem/1.5 var(--font-mono); transform: rotate(-2.5deg); box-shadow: 0 8px 20px rgba(0,0,0,0.5); }
+.plate .maker { font: 800 1rem/1 var(--font-display); letter-spacing: 0.08em; margin-bottom: 6px; }
+.plate .row { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid rgba(0,0,0,0.18); padding-top: 3px; }
+.plate .code { margin-top: 6px; display: inline-block; background: #111; color: #ff6b5c; padding: 2px 6px; border-radius: 3px; }
+.sign { width: 92%; background: var(--sign-green); color: #fff; border: 4px solid #fff; border-radius: 6px; padding: 12px; text-align: center; font: 800 0.95rem/1.15 var(--font-display); transform: rotate(1.5deg); box-shadow: 0 8px 20px rgba(0,0,0,0.5); }
+.sign .no { display: block; background: var(--sign-red); margin: -12px -12px 10px; padding: 8px; font-size: 0.85rem; }
+.sign small { display: block; font: 500 0.62rem/1.3 var(--font-body); margin-top: 6px; }
+.panel { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; background: #e9ecee; padding: 8px; border-radius: 4px; transform: rotate(-1deg); box-shadow: 0 8px 20px rgba(0,0,0,0.5); }
+.breaker { background: #fbfbfb; border: 1px solid #b9c0c6; border-radius: 3px; padding: 6px 2px; text-align: center; font: 500 0.56rem/1.25 var(--font-mono); color: #222; }
+.breaker .tog { width: 10px; height: 16px; margin: 4px auto; background: #2b2f33; border-radius: 2px; }
+.breaker.rcd { background: #f3f6f9; }
+.breaker.rcd .tog { background: #2563c9; }
+.receipt { width: 78%; background: var(--paper); color: var(--paper-ink); padding: 12px 12px 16px; font: 500 0.6rem/1.5 var(--font-mono); transform: rotate(2deg); box-shadow: 0 8px 20px rgba(0,0,0,0.5); clip-path: polygon(0 0, 100% 0, 100% 96%, 92% 100%, 84% 96%, 76% 100%, 68% 96%, 60% 100%, 52% 96%, 44% 100%, 36% 96%, 28% 100%, 20% 96%, 12% 100%, 4% 96%, 0 100%); }
+.receipt .head { text-align: center; font-weight: 600; margin-bottom: 6px; }
+.receipt .line { display: flex; justify-content: space-between; gap: 8px; }
+.receipt .sum { border-top: 1px dashed var(--paper-ink); margin-top: 4px; padding-top: 3px; font-weight: 600; }
+
+.scenario-picker { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 380px; }
+.chip { font: 500 0.82rem/1 var(--font-body); padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--hud-soft); border-color: var(--hud); color: var(--ink); }
+.vf-caption { font-size: 0.8rem; color: var(--muted); text-align: center; max-width: 36ch; }
+
+/* ── Ablauf ── */
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; align-items: stretch; }
+.node { display: grid; gap: 6px; align-content: start; padding: 18px; background: var(--surface); border: 1px solid var(--line); min-width: 0; }
+.node:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.node:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.node + .node { border-left: 0; }
+.node h3 { font-size: 1.02rem; }
+.node p { color: var(--muted); font-size: 0.9rem; }
+.link-label { font: 500 0.7rem/1.35 var(--font-mono); color: var(--hud); margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+
+/* ── Funktionen ── */
+.features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.feature { background: var(--surface); padding: 20px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.feature .hud-label { color: var(--amber); }
+.feature p { color: var(--muted); font-size: 0.93rem; }
+
+/* ── Modi ── */
+.modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.mode { display: inline-flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); min-width: 0; }
+.mode b { font-weight: 600; font-size: 0.95rem; }
+.mode span { font-size: 0.8rem; color: var(--muted); }
+
+/* ── Tabellen ── */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 0.94rem; }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 500 0.72rem/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+.free { color: var(--ok); font-weight: 600; }
+.paid { color: var(--warn); font-weight: 600; }
+
+/* ── Schnellstart ── */
+.steps { display: grid; gap: 14px; counter-reset: step; list-style: none; padding: 0; margin: 0; max-width: 820px; }
+.steps li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px; align-items: start; }
+.steps li::before { counter-increment: step; content: counter(step); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font: 700 0.95rem/1 var(--font-display); background: var(--amber-soft); color: var(--amber); }
+.steps .step-body { display: grid; gap: 6px; min-width: 0; padding-top: 5px; }
+.steps .step-body p { color: var(--muted); font-size: 0.95rem; }
+.cmd { display: flex; align-items: center; gap: 8px; background: var(--code-bg); border-radius: 10px; padding: 6px 6px 6px 14px; min-width: 0; }
+.cmd code { background: none; padding: 0; overflow-x: auto; white-space: nowrap; flex: 1; min-width: 0; }
+.copy { font: 600 0.78rem/1 var(--font-body); padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; flex: 0 0 auto; }
+.copy:hover { border-color: var(--amber); }
+
+/* ── Gen 2 ── */
+.gen2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+.specs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.specs dt, .specs dd { margin: 0; padding: 11px 16px; border-bottom: 1px solid var(--line); }
+.specs dt { font: 500 0.74rem/1.6 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.specs dd { font-variant-numeric: tabular-nums; }
+.specs dt:nth-last-child(2), .specs dd:last-child { border-bottom: 0; }
+.gen2-notes { display: grid; gap: 12px; }
+.gen2-notes p { color: var(--muted); }
+
+/* ── Bugs ── */
+.bug-stats { display: flex; flex-wrap: wrap; gap: 10px; }
+.bug-filter { display: inline-flex; align-items: baseline; gap: 8px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; color: var(--ink); font: 500 0.92rem/1 var(--font-body); }
+.bug-filter strong { font: 800 1.35rem/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.bug-filter[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.bug-list { list-style: none; padding: 0; margin: 0; display: grid; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.bug { display: grid; grid-template-columns: 52px 92px minmax(0, 1fr); gap: 14px; padding: 13px 16px; border-bottom: 1px solid var(--line); align-items: start; }
+.bug:last-child { border-bottom: 0; }
+.bug .no { font: 500 0.8rem/1.6 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px; }
+.sev { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.sev.kritisch { background: var(--danger); }
+.sev.sicherheit { background: var(--warn); }
+.sev.funktion { background: var(--hud); }
+.area { font: 500 0.72rem/1; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; text-align: center; align-self: start; }
+.bug .txt { display: grid; gap: 3px; min-width: 0; }
+.bug .txt b { font-weight: 600; }
+.bug .txt span { color: var(--muted); font-size: 0.92rem; }
+.bug .txt span::before { content: "→ "; color: var(--ok); }
+
+/* ── Sicherheit & Fuß ── */
+.honest { background: var(--amber-soft); border-radius: var(--radius); padding: 18px 20px; display: grid; gap: 8px; max-width: 820px; }
+.honest ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+footer { border-top: 1px solid var(--line); padding-block: 32px 48px; display: grid; gap: 10px; font-size: 0.88rem; color: var(--muted); }
+footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
+
+@media (max-width: 900px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .flow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .node, .node:first-child, .node:last-child { border-radius: var(--radius); border-left: 1px solid var(--line); }
+  .features { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .gen2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .flow, .features { grid-template-columns: minmax(0, 1fr); }
+  .bug { grid-template-columns: 44px minmax(0, 1fr); }
+  .bug .area { grid-column: 2; justify-self: start; }
+  .bug .txt { grid-column: 2; }
+  .toplinks { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec::before, .caret::after { animation: none; }
+}
+</style>
+
+<div class="page">
+  <header class="topbar">
+    <a class="brand" href="#start"><span class="lens" aria-hidden="true"></span>RayBan Claude</a>
+    <nav class="toplinks" aria-label="Abschnitte">
+      <a href="#ablauf">So funktioniert's</a>
+      <a href="#funktionen">Funktionen</a>
+      <a href="#schnellstart">Schnellstart</a>
+      <a href="#bugs">39 Bugfixes</a>
+      <a href="https://github.com/MoinMornhart/RayBanClaude">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="start">
+    <section class="hero">
+      <div class="hero-text">
+        <span class="hud-label">Ray-Ban Meta Gen 2 · iPhone · Windows-PC</span>
+        <h1>Claude sieht, <em>was du siehst.</em></h1>
+        <p class="lede">Deine Brille wird zu Augen und Ohren von Claude Code auf deinem PC. Du fragst, Claude schaut durch die Kamera, antwortet mit Stimme – und nutzt dabei alle deine Tools.</p>
+        <div class="facts" aria-label="Eckdaten">
+          <span class="fact"><span class="dot" aria-hidden="true"></span><b>Kostenlos</b> mit deinem Claude-Abo</span>
+          <span class="fact"><b>Windows</b>, macOS, Linux</span>
+          <span class="fact">iPhone-App <b>ohne Mac</b></span>
+          <span class="fact"><b>Deutsch</b> gesprochen und geschrieben</span>
+        </div>
+        <div class="cta-row">
+          <a class="btn primary" href="#schnellstart">In 10 Minuten starten</a>
+          <a class="btn" href="https://github.com/MoinMornhart/RayBanClaude">Code auf GitHub</a>
+        </div>
+        <p class="disclaimer">Inoffizielles Open-Source-Projekt (MIT), Fork von visionclaude. Nicht verbunden mit Meta, Ray-Ban/EssilorLuxottica oder Anthropic.</p>
+      </div>
+
+      <div class="viewfinder-wrap">
+        <div class="viewfinder" role="img" aria-labelledby="vf-desc">
+          <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+          <div class="vf-top"><span class="rec">720p · 15 fps</span><span id="vf-device">Ray-Ban Meta</span><span class="battery"><i></i>82 %</span></div>
+          <div class="vf-mode" id="vf-mode">Modus: Heizung/Klima</div>
+          <div class="scene" id="vf-scene"><span class="focus"></span></div>
+          <div class="chat" id="vf-chat" aria-live="polite"></div>
+        </div>
+        <p id="vf-desc" class="vf-caption">Beispiel: So sieht ein Gespräch durch die Brille aus. Wähle eine Situation:</p>
+        <div class="scenario-picker" role="group" aria-label="Beispiel wählen">
+          <button class="chip" type="button" id="sc-heizung" data-scene="heizung" aria-pressed="true">Therme</button>
+          <button class="chip" type="button" id="sc-uebersetzer" data-scene="uebersetzer" aria-pressed="false">Schild übersetzen</button>
+          <button class="chip" type="button" id="sc-elektro" data-scene="elektro" aria-pressed="false">Sicherungskasten</button>
+          <button class="chip" type="button" id="sc-beleg" data-scene="beleg" aria-pressed="false">Kassenbon + Freigabe</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="ablauf">
+      <div class="block-head">
+        <span class="hud-label">Aufbau</span>
+        <h2>Vier Stationen, eine Unterhaltung</h2>
+        <p>Die Brille liefert Bild und Ton ans iPhone, das iPhone erkennt deine Sprache und schickt Frage und Kamerabild über das WLAN an deinen PC. Dort läuft Claude Code – mit allen MCP-Servern und Skills, die du schon eingerichtet hast.</p>
+      </div>
+      <div class="flow">
+        <div class="node">
+          <span class="hud-label">Brille</span>
+          <h3>Ray-Ban Meta Gen 2</h3>
+          <p>Kamera, fünf Mikrofone, offene Lautsprecher. Bügel auf, Stream läuft.</p>
+          <span class="link-label">Bluetooth · Video 720×1280 · Sprache über HFP</span>
+        </div>
+        <div class="node">
+          <span class="hud-label">Handy</span>
+          <h3>RayBan-Claude-App</h3>
+          <p>Spracherkennung direkt auf dem iPhone, Bild alle 1 s, Stimme für die Antwort.</p>
+          <span class="link-label">WLAN · WebSocket :18790 · Token</span>
+        </div>
+        <div class="node">
+          <span class="hud-label">PC</span>
+          <h3>Channel-Server</h3>
+          <p>Prüft Token und Bilder, zeigt das Dashboard mit QR-Code, reicht alles an Claude weiter.</p>
+          <span class="link-label">MCP-Channel · stdio · Freigaben zurück ans Handy</span>
+        </div>
+        <div class="node">
+          <span class="hud-label">Claude</span>
+          <h3>Claude Code</h3>
+          <p>Liest das Kamerabild, antwortet über das Tool <code>reply</code>, nutzt E-Mail, Kalender, Dateien &amp; Co.</p>
+          <span class="link-label">Alle MCP-Tools · alle Skills</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="funktionen">
+      <div class="block-head">
+        <span class="hud-label">Was der Code kann</span>
+        <h2>Freihändig fragen, sehen lassen, erledigen</h2>
+      </div>
+      <div class="features">
+        <div class="feature"><span class="hud-label">Kopplung</span><h3>QR-Code statt Abtippen</h3><p>Das Dashboard am PC zeigt einen QR-Code. iPhone-Kamera drauf, „Koppeln“ bestätigen – IP, Port und Token sind drin.</p></div>
+        <div class="feature"><span class="hud-label">Freigaben</span><h3>Erlauben per „Ja“</h3><p>Will Claude ein Tool ausführen, fragt die App nach. Tippen oder einfach „Ja“ bzw. „Nein“ sagen.</p></div>
+        <div class="feature"><span class="hud-label">Foto auf Anfrage</span><h3>Claude drückt selbst ab</h3><p>Braucht Claude ein schärferes Bild, löst es über <code>request_photo</code> ein Foto auf der Brille aus.</p></div>
+        <div class="feature"><span class="hud-label">Werkzeuge</span><h3>Deine ganze Claude-Sitzung</h3><p>Visitenkarte lesen und als Kontakt speichern, Mangel fotografieren und als Ticket anlegen – mit deinen MCP-Servern.</p></div>
+        <div class="feature"><span class="hud-label">Sprache</span><h3>Deutsch rein, Deutsch raus</h3><p>Spracherkennung auf dem Gerät, kostenlose iPhone-Stimme. ElevenLabs optional für natürlicheren Klang.</p></div>
+        <div class="feature"><span class="hud-label">Brille</span><h3>Gen-2-Status im Blick</h3><p>Akku, Modell und Bügel-Status. Klappst du die Bügel wieder auf, startet der Stream von selbst.</p></div>
+        <div class="feature"><span class="hud-label">Codes</span><h3>QR- und Barcodes</h3><p>EAN, QR, Data Matrix und mehr werden erkannt – mit einem Tipp geht der Inhalt an Claude, Links werden geprüft.</p></div>
+        <div class="feature"><span class="hud-label">Windows</span><h3>Doppelklick-Start</h3><p><code>setup.cmd</code> richtet alles ein, <code>start.cmd</code> startet Claude mit Dashboard. Firewall-Hilfe inklusive.</p></div>
+        <div class="feature"><span class="hud-label">Alternative</span><h3>Gateway-Modus</h3><p>Ohne Claude Code: eigener Server mit Anthropic-API-Key und MCP-Client. Abrechnung pro Anfrage.</p></div>
+      </div>
+      <div class="block-head">
+        <span class="hud-label">11 Experten-Modi + eigene</span>
+        <p>Ein Modus gibt Claude Fachwissen und Antwortstil vor – auf deutsche Normen angepasst.</p>
+      </div>
+      <div class="modes">
+        <span class="mode"><b>Allgemein</b><span>„Was siehst du?“</span></span>
+        <span class="mode"><b>Übersetzer</b><span>Schilder, Speisekarten</span></span>
+        <span class="mode"><b>Umgebung</b><span>Hilfe bei Sehbehinderung</span></span>
+        <span class="mode"><b>Kfz-Mechaniker</b><span>OBD-Codes, Reifen-DOT</span></span>
+        <span class="mode"><b>Heizung/Klima</b><span>Typenschilder, Störcodes</span></span>
+        <span class="mode"><b>Sanitär</b><span>Rohre, Fittings, Armaturen</span></span>
+        <span class="mode"><b>Elektriker</b><span>Verteiler, VDE</span></span>
+        <span class="mode"><b>QR-Scanner</b><span>Links prüfen</span></span>
+        <span class="mode"><b>Inventur</b><span>Zählen, EAN, MHD</span></span>
+        <span class="mode"><b>Arbeitsschutz</b><span>DGUV, ASR, PSA</span></span>
+        <span class="mode"><b>Dokumente</b><span>Belege, Visitenkarten</span></span>
+      </div>
+    </section>
+
+    <section class="block" id="kosten">
+      <div class="block-head">
+        <span class="hud-label">Kosten</span>
+        <h2>Was du bezahlst: nichts extra</h2>
+        <p>Vorausgesetzt du hast ein Claude-Abo (Pro oder Max), eine Ray-Ban Meta oder ein iPhone und einen Windows-PC.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Teil</th><th scope="col">Kosten</th><th scope="col">Hinweis</th></tr></thead>
+          <tbody>
+            <tr><td>Claude Code mit Claude-Abo</td><td class="free">im Abo</td><td>keine API-Kosten im Channel-Modus</td></tr>
+            <tr><td>Sprachausgabe</td><td class="free">kostenlos</td><td>iPhone-Stimme; ElevenLabs optional</td></tr>
+            <tr><td>iPhone-App bauen</td><td class="free">kostenlos</td><td>GitHub Actions, öffentliches Repo</td></tr>
+            <tr><td>App aufs iPhone</td><td class="free">kostenlos</td><td>Sideloadly + normale Apple-ID, alle 7 Tage auffrischen</td></tr>
+            <tr><td>Gateway-Modus (optional)</td><td class="paid">pro Anfrage</td><td>eigener Anthropic-API-Key</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="block" id="schnellstart">
+      <div class="block-head">
+        <span class="hud-label">Schnellstart · Windows</span>
+        <h2>Vom Download zum ersten „Was siehst du?“</h2>
+      </div>
+      <ol class="steps">
+        <li><div class="step-body"><h3>Projekt herunterladen</h3><p>ZIP von GitHub laden und entpacken – oder klonen:</p>
+          <div class="cmd"><code id="cmd-clone">git clone https://github.com/MoinMornhart/RayBanClaude.git</code><button class="copy" type="button" data-copy="cmd-clone">Kopieren</button></div></div></li>
+        <li><div class="step-body"><h3><code>setup.cmd</code> doppelklicken</h3><p>Installiert bei Bedarf Bun und Claude Code, lädt die Abhängigkeiten und hilft bei der Windows-Firewall (nur privates Netzwerk).</p></div></li>
+        <li><div class="step-body"><h3><code>start.cmd</code> doppelklicken</h3><p>Startet Claude Code mit dem Channel und öffnet das Dashboard. Beim ersten Mal „Use this MCP server“ und „I am using this for local development“ bestätigen. Der Befehl dahinter:</p>
+          <div class="cmd"><code id="cmd-start">claude --dangerously-load-development-channels server:raybanclaude</code><button class="copy" type="button" data-copy="cmd-start">Kopieren</button></div></div></li>
+        <li><div class="step-body"><h3>App aufs iPhone – ohne Mac</h3><p>Die App wird in der Cloud gebaut. <code>RayBanClaude.ipa</code> laden und mit <a href="https://sideloadly.io">Sideloadly</a> und deiner Apple-ID installieren. <a href="https://github.com/MoinMornhart/RayBanClaude/blob/main/docs/IPHONE-OHNE-MAC.md">Schritt-für-Schritt-Anleitung</a></p></div></li>
+        <li><div class="step-body"><h3>QR-Code scannen und lossprechen</h3><p>iPhone-Kamera auf den QR-Code im Dashboard, „Koppeln“ bestätigen. Für die Brille: in der Meta-AI-App den Entwicklermodus einschalten, in RayBan Claude „Brille verbinden“.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="block" id="gen2">
+      <div class="block-head">
+        <span class="hud-label">Ray-Ban Meta Gen 2</span>
+        <h2>Gebaut auf dem offiziellen Meta-SDK</h2>
+      </div>
+      <div class="gen2">
+        <dl class="specs">
+          <dt>SDK</dt><dd>Meta Wearables DAT 1.0.1</dd>
+          <dt>Brillen</dt><dd>Ray-Ban Meta Gen 1 &amp; Gen 2, Oakley Meta, Meta Ray-Ban Display</dd>
+          <dt>Stream</dt><dd>720 × 1280 · 15 fps · Bluetooth</dd>
+          <dt>Foto</dt><dd>JPEG per <code>capturePhoto</code>, Video pausiert kurz</dd>
+          <dt>iPhone</dt><dd>iOS 17.2 oder neuer</dd>
+          <dt>Meta-AI-App</dt><dd>ab Version 290, Entwicklermodus an</dd>
+          <dt>Firmware</dt><dd>ab V128</dd>
+        </dl>
+        <div class="gen2-notes">
+          <p><strong>Warum 15 statt 30 fps?</strong> Über Bluetooth wird jedes Bild komprimiert. Weniger Bilder pro Sekunde ergeben schärfere Einzelbilder – und Claude bekommt ohnehin nur ein Bild pro Frage.</p>
+          <p><strong>Stabiler Ton.</strong> Die Audio-Sitzung wird einmal auf Brillen-Mikrofon und -Lautsprecher gestellt und nicht ständig umgeschaltet. Meta nennt genau das als Ursache für „Gerät nicht verfügbar“ bei der Gen 2.</p>
+          <p><strong>Bügel zu, Stream aus.</strong> Das SDK beendet die Sitzung beim Zuklappen. Die App merkt sich, dass du streamen wolltest, und verbindet beim Aufklappen neu.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="bugs">
+      <div class="block-head">
+        <span class="hud-label">Code-Review</span>
+        <h2>39 Bugs gefunden und behoben</h2>
+        <p>Der Original-Code ließ sich nicht mehr bauen, hatte offene Schnittstellen im WLAN und einen echten API-Key im Repo. Alles, was gefunden wurde – zum Filtern antippen:</p>
+      </div>
+      <div class="bug-stats" role="group" aria-label="Bugs filtern">
+        <button class="bug-filter" type="button" id="f-alle" data-filter="alle" aria-pressed="true"><strong id="n-alle">39</strong>alle</button>
+        <button class="bug-filter" type="button" id="f-kritisch" data-filter="kritisch" aria-pressed="false"><span class="sev kritisch" aria-hidden="true"></span><strong id="n-kritisch">5</strong>kritisch</button>
+        <button class="bug-filter" type="button" id="f-sicherheit" data-filter="sicherheit" aria-pressed="false"><span class="sev sicherheit" aria-hidden="true"></span><strong id="n-sicherheit">12</strong>Sicherheit</button>
+        <button class="bug-filter" type="button" id="f-funktion" data-filter="funktion" aria-pressed="false"><span class="sev funktion" aria-hidden="true"></span><strong id="n-funktion">22</strong>Funktion</button>
+      </div>
+      <ul class="bug-list" id="bug-list"></ul>
+    </section>
+
+    <section class="block" id="sicherheit">
+      <div class="block-head">
+        <span class="hud-label">Sicherheit</span>
+        <h2>Wer darf was?</h2>
+        <p>Jede Verbindung braucht ein Token mit 48 Zeichen. Nach zehn falschen Versuchen ist die Adresse 15 Minuten gesperrt.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Stufe</th><th scope="col">Wer</th><th scope="col">Was</th></tr></thead>
+          <tbody>
+            <tr><td>öffentlich</td><td>jeder im WLAN</td><td>nur „läuft“ (<code>/health</code>)</td></tr>
+            <tr><td>nur dieser PC</td><td>Browser am PC selbst</td><td>Dashboard, Token, QR-Code – geschützt gegen DNS-Rebinding</td></tr>
+            <tr><td>Token</td><td>gekoppelte App</td><td>Nachrichten, Bilder, Sprachausgabe, Verlauf</td></tr>
+            <tr><td>Token + PC</td><td>Dashboard</td><td>Stimme ändern, Testnachricht</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="honest">
+        <h3>Was du wissen solltest</h3>
+        <ul>
+          <li>Im WLAN läuft die Verbindung per HTTP, weil es für LAN-Adressen kein Zertifikat gibt. Für unterwegs ein VPN wie Tailscale nutzen, keine Portfreigabe im Router.</li>
+          <li>Text in Kamerabildern kann Anweisungen enthalten. Deshalb bleiben Tool-Freigaben aktiv – RayBan Claude nicht mit <code>--dangerously-skip-permissions</code> betreiben.</li>
+          <li>Die App ist in der Cloud gebaut, aber noch nicht auf echter Brille getestet. Rückmeldungen gern als GitHub-Issue.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="links">
+      <a href="https://github.com/MoinMornhart/RayBanClaude">GitHub</a>
+      <a href="https://github.com/MoinMornhart/RayBanClaude/blob/main/docs/BUGFIXES.md">Bug-Liste</a>
+      <a href="https://github.com/MoinMornhart/RayBanClaude/blob/main/docs/IPHONE-OHNE-MAC.md">iPhone ohne Mac</a>
+      <a href="https://github.com/mrdulasolutions/visionclaude">Original: visionclaude</a>
+    </div>
+    <p>RayBan Claude · MIT-Lizenz · ursprünglicher Code © 2026 MR Dula Solutions. Inoffizielles Projekt – nicht verbunden mit Meta Platforms, Ray-Ban/EssilorLuxottica oder Anthropic. Ray-Ban und Meta sind Marken ihrer Inhaber, Claude ist eine Marke von Anthropic.</p>
+    <p>Verfasst mit Claude.</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── Beispiel-Situationen im Sucher ──
+  var SCENES = {
+    heizung: {
+      mode: 'Heizung/Klima', device: 'Ray-Ban Meta',
+      scene: '<div class="plate"><div class="maker">THERMAVIA</div><div>CondensPro 24 · Gas-Brennwert</div>' +
+        '<div class="row"><span>Baujahr</span><span>2014</span></div><div class="row"><span>Nennleistung</span><span>4,8–24 kW</span></div>' +
+        '<div class="row"><span>Gasart</span><span>G20 · 20 mbar</span></div><div class="row"><span>Serien-Nr.</span><span>2114-0587-6632</span></div>' +
+        '<span class="code">F28</span></div>',
+      ask: 'Wie alt ist die Therme und was heißt F28?',
+      reply: 'Eine Thermavia CondensPro 24 von 2014, also gut zwölf Jahre alt. F28 bedeutet Zündung fehlgeschlagen – prüf zuerst, ob der Gashahn offen ist.'
+    },
+    uebersetzer: {
+      mode: 'Übersetzer', device: 'Ray-Ban Meta',
+      scene: '<div class="sign"><span class="no">VIETATO L\'ACCESSO</span>USCITA DI EMERGENZA<small>Tenere libero il passaggio</small></div>',
+      ask: 'Was steht auf dem Schild?',
+      reply: 'Italienisch: „Zutritt verboten – Notausgang. Durchgang freihalten.“ Hier also nichts abstellen und nicht parken.'
+    },
+    elektro: {
+      mode: 'Elektriker', device: 'Ray-Ban Meta',
+      scene: '<div class="panel"><div class="breaker rcd">F1<div class="tog"></div>FI 40 A<br>30 mA</div>' +
+        '<div class="breaker">Q1<div class="tog"></div>B16<br>Küche</div><div class="breaker">Q2<div class="tog"></div>B16<br>Bad</div>' +
+        '<div class="breaker">Q3<div class="tog"></div>C16<br>Herd 3~</div></div>',
+      ask: 'Welche Sicherung ist die Küche?',
+      reply: 'Die Küche hängt an Q1, einem B16-Leitungsschutzschalter hinter dem FI F1 mit 30 mA. Vor dem Arbeiten Q1 ausschalten und Spannungsfreiheit prüfen.'
+    },
+    beleg: {
+      mode: 'Dokumente', device: 'iPhone-Kamera',
+      scene: '<div class="receipt"><div class="head">BÄCKEREI SONNENKORN<br>18.10.2026 · 08:42</div>' +
+        '<div class="line"><span>2× Laugenbrezel</span><span>1,80</span></div><div class="line"><span>Kaffee groß</span><span>3,40</span></div>' +
+        '<div class="line"><span>Bauernbrot 1 kg</span><span>5,29</span></div><div class="line"><span>Quarkstrudel</span><span>2,98</span></div>' +
+        '<div class="line sum"><span>SUMME EUR</span><span>13,47</span></div><div class="line"><span>inkl. 7 % MwSt</span><span>0,88</span></div></div>',
+      ask: 'Trag den Bon in meine Ausgaben ein.',
+      reply: 'Vier Posten bei der Bäckerei Sonnenkorn, zusammen 13,47 Euro. Ich trage das in „Ausgaben 2026“ ein.',
+      permission: { tool: 'sheets · append_row', input: 'Ausgaben 2026: 18.10.2026 | Bäckerei Sonnenkorn | 13,47 €' },
+      done: 'Erledigt – die Zeile steht jetzt in „Ausgaben 2026“.'
+    }
+  };
+
+  var sceneEl = document.getElementById('vf-scene');
+  var chatEl = document.getElementById('vf-chat');
+  var modeEl = document.getElementById('vf-mode');
+  var deviceEl = document.getElementById('vf-device');
+  var timer = null;
+
+  function bubble(role, label, text) {
+    var b = document.createElement('div');
+    b.className = 'bubble ' + role;
+    var s = document.createElement('small');
+    s.textContent = label;
+    var t = document.createElement('span');
+    t.textContent = text;
+    b.append(s, t);
+    chatEl.append(b);
+    return t;
+  }
+
+  function typeInto(el, text, done) {
+    if (reduceMotion) { el.textContent = text; if (done) done(); return; }
+    var i = 0;
+    el.textContent = '';
+    el.classList.add('caret');
+    timer = setInterval(function () {
+      i += 2;
+      el.textContent = text.slice(0, i);
+      if (i >= text.length) {
+        clearInterval(timer);
+        timer = null;
+        el.classList.remove('caret');
+        if (done) done();
+      }
+    }, 22);
+  }
+
+  function permissionCard(data, onAnswer) {
+    var card = document.createElement('div');
+    card.className = 'perm';
+    var head = document.createElement('div');
+    head.innerHTML = '<strong>Claude möchte ein Tool ausführen</strong>';
+    var tool = document.createElement('code');
+    tool.textContent = data.tool + ' – ' + data.input;
+    var actions = document.createElement('div');
+    actions.className = 'perm-actions';
+    var deny = document.createElement('button');
+    deny.type = 'button';
+    deny.textContent = 'Ablehnen';
+    var allow = document.createElement('button');
+    allow.type = 'button';
+    allow.className = 'allow';
+    allow.textContent = 'Erlauben';
+    var hint = document.createElement('span');
+    hint.className = 'perm-result';
+    hint.textContent = 'Oder einfach „Ja“ sagen.';
+    actions.append(deny, allow);
+    card.append(head, tool, actions, hint);
+    deny.addEventListener('click', function () { onAnswer(false, card); });
+    allow.addEventListener('click', function () { onAnswer(true, card); });
+    return card;
+  }
+
+  function show(key, animate) {
+    var s = SCENES[key];
+    if (!s) return;
+    if (timer) { clearInterval(timer); timer = null; }
+    modeEl.textContent = 'Modus: ' + s.mode;
+    deviceEl.textContent = s.device;
+    sceneEl.innerHTML = '<span class="focus"></span>' + s.scene;
+    chatEl.replaceChildren();
+    bubble('user', 'Du', s.ask);
+    var target = bubble('claude', 'Claude', animate ? '' : s.reply);
+    var after = function () {
+      if (!s.permission) return;
+      chatEl.append(permissionCard(s.permission, function (allowed, card) {
+        card.querySelector('.perm-actions').remove();
+        var res = card.querySelector('.perm-result');
+        res.textContent = allowed ? '✓ Erlaubt. ' + s.done : '✕ Abgelehnt – es wurde nichts eingetragen.';
+      }));
+    };
+    if (animate) { typeInto(target, s.reply, after); } else { after(); }
+    document.querySelectorAll('[data-scene]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.scene === key));
+    });
+  }
+
+  document.querySelectorAll('[data-scene]').forEach(function (b) {
+    b.addEventListener('click', function () { show(b.dataset.scene, true); });
+  });
+  show('heizung', false);
+
+  // ── Bug-Liste ──
+  var BUGS = [
+    ['kritisch', 'iOS', 'App ließ sich nicht mehr bauen: Meta-SDK 0.9 hat StreamSession entfernt', 'Portierung auf DAT 1.0.1, Cloud-Build grün'],
+    ['kritisch', 'Repo', 'Echter API-Key des Original-Autors im Repository', 'Datei nicht übernommen, in .gitignore'],
+    ['kritisch', 'Channel', 'Token per gefälschtem Host-Header aus dem ganzen WLAN auslesbar', 'Nur echte Loopback-Anfragen, Host- und Origin-Prüfung'],
+    ['kritisch', 'Gateway', 'Ohne Schlüssel komplett offen: jeder im WLAN konnte chatten und das Modell ändern', 'Token immer Pflicht, wird automatisch erzeugt'],
+    ['kritisch', 'iOS', 'Meta-App-ID, Client-Token und Team-ID des Original-Autors fest eingebaut', 'Eigene Werte über Secrets.xcconfig, im Entwicklermodus nicht nötig'],
+    ['sicherheit', 'Channel', 'AppleScript-Injection über die Apple-ID beim iMessage-Versand', 'Werte als argv, Formatprüfung'],
+    ['sicherheit', 'Channel', 'Pfad-Traversal über das Feld „source“ beim Speichern', 'Whitelist iphone/rayban'],
+    ['sicherheit', 'Channel', 'Sprachausgabe und Anhänge ohne Token abrufbar', 'Token nötig, Dateinamen-Whitelist'],
+    ['sicherheit', 'Channel', 'Beliebige Dateien als „Bild“ akzeptiert', 'Prüfung der Magic Bytes, Größenlimit'],
+    ['sicherheit', 'Channel', '.env-Injection über den ElevenLabs-Key', 'Formatprüfung, Datei nur für den Nutzer lesbar'],
+    ['sicherheit', 'beide', 'Kein Schutz gegen Token-Raten, Vergleich nicht zeitkonstant', 'Zeitkonstanter Vergleich, Sperre nach 10 Fehlversuchen'],
+    ['sicherheit', 'Gateway', '/health verriet Tools und Skills, CORS erlaubte jede Webseite', 'Nur „ok“ öffentlich, CORS entfernt, Security-Header'],
+    ['sicherheit', 'Gateway', 'MCP-Server erbten den Anthropic-API-Key', 'Nur Standard-Umgebung plus konfigurierte Werte'],
+    ['sicherheit', 'iOS', 'Token und API-Key im Klartext in den UserDefaults', 'iOS-Schlüsselbund'],
+    ['sicherheit', 'beide', 'Interne Fehlertexte gingen an die App', 'Neutrale Meldungen, Details ins Log'],
+    ['sicherheit', 'Channel', 'Claude konnte jede Datei des PCs als Anhang schicken', 'Nur Bilder, PDF, Text, Audio bis 25 MB'],
+    ['sicherheit', 'Doku', '„-p bypassPermissions“ empfohlen – falsches Flag und riskant', 'Nur eigene Antwort-Tools vorab erlauben'],
+    ['funktion', 'iOS', 'Brille streamte nach „Stop“ weiter', 'Sauberer Abbau Kamera → Sitzung'],
+    ['funktion', 'iOS', 'iPhone-Bilder kamen um 90° gedreht bei Claude an', 'Drehung an der Kameraverbindung'],
+    ['funktion', 'iOS', 'Ohne Antwort hing die App für immer bei „Denkt nach“', 'Zustell- und Antwort-Timeout'],
+    ['funktion', 'iOS', 'Spracherkennung und Stimme fest auf Englisch', 'Gerätesprache, Deutsch wählbar'],
+    ['funktion', 'Channel', 'Verwaister Prozess blockierte nach Claude-Ende den Port', 'Prozess endet mit der MCP-Verbindung'],
+    ['funktion', 'Channel', 'Absturz unter Windows und Linux', 'Plattformabhängiger Browser-Start'],
+    ['funktion', 'Gateway', 'Jedes Kamerabild blieb im Verlauf – Kosten stiegen mit jeder Runde', 'Bilder nur in der aktuellen Nachricht'],
+    ['funktion', 'Channel', 'Anhänge von Claude kamen nie in der App an', 'Links in der Antwort, Vorschau im Verlauf'],
+    ['funktion', 'Channel', 'Korrekturen erzeugten eine neue statt die alte Nachricht', 'Eigener Nachrichtentyp „edit“'],
+    ['funktion', 'iOS', 'Gateway-Modus nie wählbar, sendete kein Token', 'Auswahl in den Einstellungen, Token-Header'],
+    ['funktion', 'iOS', 'Reconnect-Schleifen und Speicherleck bei Verbindungsabbrüchen', 'Backoff, eine Verbindung, Stopp bei falschem Token'],
+    ['funktion', 'iOS', 'Modus-Auswahl und Brillen-Status aktualisierten sich nicht', 'Änderungen werden weitergereicht'],
+    ['funktion', 'iOS', 'Zuhören brach still ab, Sätze wurden teils doppelt gesendet', 'Rückmeldung bei Abbruch, Pause nur einmal'],
+    ['funktion', 'iOS', 'Ständiges Umschalten der Audio-Sitzung (Gen 2: Gerät nicht verfügbar)', 'Einmal Brillen-Audio, kein Wechsel'],
+    ['funktion', 'iOS', 'Absturz bei ungültiger PC-Adresse, Port-Feld sprang zurück', 'Sichere URLs, eigener Eingabezustand'],
+    ['funktion', 'Channel', 'Unter Windows wurde eine virtuelle Adresse (WSL/Hyper-V) angezeigt', 'WLAN- und Heimnetz-Adressen zuerst'],
+    ['funktion', 'Channel', '.env mit Windows-Zeilenenden falsch gelesen', 'CRLF-tolerant'],
+    ['funktion', 'Gateway', 'Privatpfade des Original-Autors, Config nur auf macOS gefunden', 'Pfade für Windows, Linux und macOS'],
+    ['funktion', 'Gateway', 'Doppelte Tool-Namen ließen jede Anfrage scheitern', 'Kollisionen werden gefiltert'],
+    ['funktion', 'Channel', 'Bilder und Audio sammelten sich unbegrenzt an', 'Aufräumen nach 24 Stunden'],
+    ['funktion', 'iOS', 'Kamera-Stopp beim Start übersehen, teure Bildumwandlung', 'Eigene Warteschlange, ein CIContext'],
+    ['funktion', 'Setup', 'Absolute Pfade des Original-Autors, Setup nur für macOS', 'setup.cmd und start.cmd für Windows']
+  ];
+
+  var listEl = document.getElementById('bug-list');
+  BUGS.forEach(function (b, i) {
+    var li = document.createElement('li');
+    li.className = 'bug';
+    li.dataset.sev = b[0];
+    var no = document.createElement('span');
+    no.className = 'no';
+    no.innerHTML = '<span class="sev ' + b[0] + '" aria-hidden="true"></span>';
+    no.append(document.createTextNode(String(i + 1).padStart(2, '0')));
+    var area = document.createElement('span');
+    area.className = 'area';
+    area.textContent = b[1];
+    var txt = document.createElement('span');
+    txt.className = 'txt';
+    var p = document.createElement('b');
+    p.textContent = b[2];
+    var fix = document.createElement('span');
+    fix.textContent = b[3];
+    txt.append(p, fix);
+    li.append(no, area, txt);
+    listEl.append(li);
+  });
+  ['kritisch', 'sicherheit', 'funktion'].forEach(function (sev) {
+    document.getElementById('n-' + sev).textContent = BUGS.filter(function (b) { return b[0] === sev; }).length;
+  });
+  document.getElementById('n-alle').textContent = BUGS.length;
+
+  document.querySelectorAll('[data-filter]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var f = btn.dataset.filter;
+      document.querySelectorAll('[data-filter]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === btn)); });
+      listEl.querySelectorAll('.bug').forEach(function (li) { li.hidden = f !== 'alle' && li.dataset.sev !== f; });
+    });
+  });
+
+  // ── Kopieren ──
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var code = document.getElementById(btn.dataset.copy);
+      var text = code.textContent;
+      var ok = function () { btn.textContent = 'Kopiert'; setTimeout(function () { btn.textContent = 'Kopieren'; }, 1600); };
+      var fallback = function () {
+        var range = document.createRange();
+        range.selectNodeContents(code);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        btn.textContent = 'Markiert – Strg+C';
+      };
+      try {
+        navigator.clipboard.writeText(text).then(ok, fallback);
+      } catch (e) { fallback(); }
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
