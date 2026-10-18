@@ -1,66 +1,60 @@
 import { Router } from "express";
+import type { Request, Response } from "express";
+import { buildUserMessage, describeChatError } from "../claude-client.js";
 import type { ClaudeClient } from "../claude-client.js";
+import { c } from "../console-theme.js";
 import type { ConversationStore } from "../conversation.js";
+import { HTTP_BAD_REQUEST, sendError } from "../http.js";
 import type { RequestQueue } from "../middleware.js";
-import type { ChatRequest, ChatResponse } from "../types.js";
+import type { ChatResponse } from "../types.js";
+import { validateChatRequest } from "../validation.js";
+
+// POST /chat – Vertrag mit der iOS-App:
+//   Body:    { text, images?: string[] (Base64), conversation_id? }
+//   Antwort: { text, tool_calls: [{ name, result }], conversation_id }
 
 export function createChatRouter(
   claudeClient: ClaudeClient,
   conversations: ConversationStore,
-  requestQueue?: RequestQueue
+  requestQueue: RequestQueue
 ): Router {
   const router = Router();
 
-  router.post("/", async (req, res) => {
+  router.post("/", async (req: Request, res: Response): Promise<void> => {
+    const validation = validateChatRequest(req.body);
+    if (!validation.ok) {
+      sendError(res, HTTP_BAD_REQUEST, validation.error);
+      return;
+    }
+
+    const { text, images, conversationId } = validation.value;
+    const id = conversations.resolveId(conversationId);
+
     try {
-      const body = req.body as ChatRequest;
-
-      if (!body.text && (!body.images || body.images.length === 0)) {
-        res.status(400).json({ error: "Must provide text or images" });
-        return;
-      }
-
-      const { id, messages } = conversations.getOrCreate(body.conversation_id);
-
-      // Queue the API call to prevent concurrent races
-      const chatFn = () =>
-        claudeClient.chat(messages, body.text || "", body.images);
-
-      const { responseText, toolCalls } = requestQueue
-        ? await requestQueue.enqueue(chatFn)
-        : await chatFn();
-
-      // Update conversation history
-      const userContent: any[] = [];
-      if (body.images && body.images.length > 0) {
-        for (const img of body.images) {
-          userContent.push({
-            type: "image",
-            source: { type: "base64", media_type: "image/jpeg", data: img },
-          });
-        }
-      }
-      if (body.text) {
-        userContent.push({ type: "text", text: body.text });
-      }
-
-      conversations.append(
-        id,
-        { role: "user", content: userContent },
-        { role: "assistant", content: responseText }
+      // History erst bei Ausführung lesen – so sieht eine wartende Anfrage
+      // auch die Runde, die direkt vor ihr in derselben Konversation lief.
+      const result = await requestQueue.enqueue(() =>
+        claudeClient.chat(conversations.getHistory(id), text, images)
       );
 
+      if (!result.refused) {
+        conversations.appendTurn(id, buildUserMessage(text, images), {
+          role: "assistant",
+          content: result.responseText,
+        });
+      }
+
       const response: ChatResponse = {
-        text: responseText,
-        tool_calls: toolCalls,
+        text: result.responseText,
+        tool_calls: [...result.toolCalls],
         conversation_id: id,
       };
-
       res.json(response);
     } catch (err) {
-      console.error("[Chat] Error:", err);
-      const message = err instanceof Error ? err.message : "Internal error";
-      res.status(500).json({ error: message });
+      // Details (inkl. SDK-Fehlertext) nur ins Log, an den Client nur neutral
+      console.error(c.label("[Chat]") + c.error(" Anfrage fehlgeschlagen:"), err);
+      const { status, message } = describeChatError(err);
+      sendError(res, status, message);
     }
   });
 

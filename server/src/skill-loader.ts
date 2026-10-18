@@ -1,259 +1,261 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { c } from "./console-theme.js";
+import { SERVER_ROOT } from "./env.js";
+
+// ── Skill-Loader ────────────────────────────────────────────────────
+// Sucht SKILL.md-Dateien in:
+//   1. server/skills (eigene Skills des Gateways)
+//   2. ~/.claude/skills
+//   3. ~/.claude/plugins (rekursiv)
+//   4. optional SKILL_PATHS aus der .env (Trennzeichen: path.delimiter,
+//      also ";" unter Windows und ":" unter macOS/Linux; relative Pfade
+//      beziehen sich auf den server-Ordner)
+// Im Systemprompt stehen nur Name + Beschreibung; den vollständigen Inhalt
+// lädt Claude bei Bedarf über das lokale Werkzeug "skill_laden".
 
 export interface Skill {
-  name: string;
-  description: string;
-  trigger: string;
-  content: string;
-  filePath: string;
+  readonly name: string;
+  readonly description: string;
+  readonly trigger: string;
+  readonly content: string;
+  readonly filePath: string;
 }
 
-const HOME = process.env.HOME || "~";
+export interface SkillSummary {
+  readonly name: string;
+  readonly description: string;
+  readonly trigger: string;
+}
 
-const SKILL_SEARCH_PATHS = [
-  // ── RayBanClaude's own skills ──
-  path.join(process.cwd(), "..", "skills"),
-  path.join(process.cwd(), "skills"),
+const MAX_SCAN_DEPTH = 8;
+const MAX_SKILL_FILES = 500;
+const MAX_SKILL_FILE_BYTES = 262_144; // 256 KB
+const MAX_DESCRIPTION_LENGTH = 300;
+const MAX_NAME_LENGTH = 64;
+const FRONTMATTER_FENCE = "---";
+const HEADING_MARK = "#";
+const ELLIPSIS = "…";
+const SKILL_FILE_NAMES: ReadonlySet<string> = new Set(["SKILL.md", "skill.md"]);
+const SKIPPED_DIRS: ReadonlySet<string> = new Set(["node_modules", ".git"]);
+const BLOCK_SCALAR_MARKERS: ReadonlySet<string> = new Set([">", "|", ">-", "|-", ">+", "|+"]);
+const QUOTE_CHARS: ReadonlySet<string> = new Set(['"', "'"]);
+const IGNORED_FS_ERRORS: ReadonlySet<string> = new Set(["ENOENT", "ENOTDIR"]);
 
-  // ── Claude Code / Desktop plugins ──
-  path.join(HOME, ".claude", "plugins", "marketplaces", "claude-plugins-official", "plugins"),
-  path.join(HOME, ".claude", "plugins", "marketplaces", "claude-plugins-official", "external_plugins"),
+/** Standard-Suchpfade (relativ zum server-Ordner bzw. Home-Verzeichnis). */
+export function defaultSkillPaths(): string[] {
+  const home = os.homedir();
+  const extra = (process.env.SKILL_PATHS ?? "")
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => path.resolve(SERVER_ROOT, entry));
+  return [
+    path.join(SERVER_ROOT, "skills"),
+    path.join(home, ".claude", "skills"),
+    path.join(home, ".claude", "plugins"),
+    ...extra,
+  ];
+}
 
-  // ── Claude scheduled tasks ──
-  path.join(HOME, ".claude", "scheduled-tasks"),
+function errorCode(err: unknown): string | undefined {
+  return err instanceof Error && "code" in err && typeof err.code === "string"
+    ? err.code
+    : undefined;
+}
 
-  // ── User's Desktop repos (where custom skills live) ──
-  path.join(HOME, "Desktop", "Claude Repo"),
-  path.join(HOME, "Desktop", "Cursor Repo"),
-  path.join(HOME, "Desktop", "ExChek Client Repos"),
-  path.join(HOME, "Desktop", "Agentpaytest"),
-];
+function readDirSafe(dir: string): fs.Dirent[] {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    const code = errorCode(err);
+    if (!code || !IGNORED_FS_ERRORS.has(code)) {
+      console.warn(c.label("[Skills]") + c.warn(` Ordner nicht lesbar (${code ?? "?"}): ${dir}`));
+    }
+    return [];
+  }
+}
 
-/**
- * Parse SKILL.md frontmatter and content.
- * Frontmatter format:
- * ---
- * description: Short description
- * trigger: keyword or phrase
- * ---
- * Content here...
- */
+/** Findet rekursiv alle SKILL.md-Dateien (Symlinks werden nicht verfolgt). */
+function findSkillFiles(dir: string, depth: number): string[] {
+  if (depth > MAX_SCAN_DEPTH) return [];
+  return readDirSafe(dir).flatMap((entry) => {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return SKIPPED_DIRS.has(entry.name) ? [] : findSkillFiles(fullPath, depth + 1);
+    }
+    return entry.isFile() && SKILL_FILE_NAMES.has(entry.name) ? [fullPath] : [];
+  });
+}
+
+// ── Frontmatter-Parser (minimal, ohne YAML-Abhängigkeit) ──
+
+interface ParsedSkillFile {
+  readonly frontmatter: readonly string[];
+  readonly body: string;
+}
+
+function splitFrontmatter(raw: string): ParsedSkillFile {
+  const lines = raw.split("\n");
+  if (lines[0]?.trim() !== FRONTMATTER_FENCE) {
+    return { frontmatter: [], body: raw.trim() };
+  }
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() === FRONTMATTER_FENCE);
+  if (end === -1) {
+    return { frontmatter: [], body: raw.trim() };
+  }
+  return { frontmatter: lines.slice(1, end), body: lines.slice(end + 1).join("\n").trim() };
+}
+
+function stripQuotes(value: string): string {
+  const first = value.charAt(0);
+  const isQuoted = QUOTE_CHARS.has(first) && value.length > 1 && value.endsWith(first);
+  return isQuoted ? value.slice(1, -1) : value;
+}
+
+/** Sammelt eingerückte Folgezeilen eines YAML-Blockskalars (">" bzw. "|"). */
+function collectIndented(lines: readonly string[]): string {
+  const end = lines.findIndex(
+    (line) => Boolean(line.trim()) && !line.startsWith(" ") && !line.startsWith("\t")
+  );
+  const block = end === -1 ? lines : lines.slice(0, end);
+  return block.map((line) => line.trim()).filter(Boolean).join(" ");
+}
+
+function frontmatterValue(lines: readonly string[], key: string): string {
+  const prefix = `${key}:`;
+  const index = lines.findIndex((line) => line.toLowerCase().startsWith(prefix));
+  if (index === -1) return "";
+  const inline = lines[index].slice(prefix.length).trim();
+  const value = BLOCK_SCALAR_MARKERS.has(inline) ? collectIndented(lines.slice(index + 1)) : inline;
+  // Escapete Zeilenumbrüche ("\n" als Text) in Leerzeichen umwandeln
+  return stripQuotes(value).split("\\n").join(" ").trim();
+}
+
+function truncate(text: string, maxLength: number): string {
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}${ELLIPSIS}` : text;
+}
+
+/** Erste nicht-leere Zeile des Inhalts, ohne führende "#". */
+function firstLineDescription(body: string): string {
+  const firstLine = body.split("\n").find((line) => line.trim()) ?? "";
+  const textStart = [...firstLine].findIndex((ch) => ch !== HEADING_MARK);
+  return (textStart === -1 ? "" : firstLine.slice(textStart)).trim();
+}
+
 function parseSkillFile(filePath: string): Skill | null {
   try {
-    const raw = fs.readFileSync(filePath, "utf-8");
+    if (fs.statSync(filePath).size > MAX_SKILL_FILE_BYTES) {
+      console.warn(c.label("[Skills]") + c.warn(` Datei zu groß, übersprungen: ${filePath}`));
+      return null;
+    }
+    // Windows-Zeilenenden vereinheitlichen, damit der Frontmatter-Parser greift
+    const raw = fs.readFileSync(filePath, "utf-8").split("\r\n").join("\n");
+    const { frontmatter, body } = splitFrontmatter(raw);
     const dirName = path.basename(path.dirname(filePath));
-
-    let description = "";
-    let trigger = "";
-    let content = raw;
-
-    // Parse YAML-style frontmatter
-    const frontmatterMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
-    if (frontmatterMatch) {
-      const frontmatter = frontmatterMatch[1];
-      content = frontmatterMatch[2].trim();
-
-      const descMatch = frontmatter.match(/description:\s*(.+)/i);
-      if (descMatch) description = descMatch[1].trim().replace(/^["']|["']$/g, "");
-
-      const triggerMatch = frontmatter.match(/trigger:\s*(.+)/i);
-      if (triggerMatch) trigger = triggerMatch[1].trim().replace(/^["']|["']$/g, "");
-    }
-
-    // If no frontmatter, try to extract description from first line
-    if (!description) {
-      const firstLine = content.split("\n")[0];
-      if (firstLine.startsWith("#")) {
-        description = firstLine.replace(/^#+\s*/, "").trim();
-      } else {
-        description = firstLine.substring(0, 100).trim();
-      }
-    }
-
-    // Default trigger to the directory name
-    if (!trigger) trigger = dirName;
-
-    return {
-      name: dirName,
-      description,
-      trigger,
-      content,
-      filePath,
-    };
-  } catch {
+    const name = truncate(frontmatterValue(frontmatter, "name") || dirName, MAX_NAME_LENGTH);
+    const description = truncate(
+      frontmatterValue(frontmatter, "description") || firstLineDescription(body),
+      MAX_DESCRIPTION_LENGTH
+    );
+    const trigger = frontmatterValue(frontmatter, "trigger") || name;
+    return { name, description, trigger, content: body, filePath };
+  } catch (err) {
+    console.warn(c.label("[Skills]") + c.warn(` Skill nicht lesbar: ${filePath}`), err);
     return null;
   }
 }
 
-/**
- * Recursively find all SKILL.md files in a directory.
- */
-function findSkillFiles(dir: string, maxDepth: number = 5): string[] {
-  const results: string[] = [];
-
-  if (!fs.existsSync(dir)) return results;
-
-  function walk(currentDir: string, depth: number) {
-    if (depth > maxDepth) return;
-
-    try {
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-        if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== ".git") {
-          walk(fullPath, depth + 1);
-        } else if (
-          entry.isFile() &&
-          (entry.name === "SKILL.md" || entry.name === "skill.md")
-        ) {
-          results.push(fullPath);
-        }
-      }
-    } catch {
-      // Permission denied or other FS error — skip
-    }
-  }
-
-  walk(dir, 0);
-  return results;
-}
-
 export class SkillLoader {
-  private skills: Map<string, Skill> = new Map();
-  private searchPaths: string[];
+  private skills = new Map<string, Skill>();
+  private readonly searchPaths: readonly string[];
 
-  constructor(extraPaths?: string[]) {
-    this.searchPaths = [...SKILL_SEARCH_PATHS, ...(extraPaths || [])];
+  constructor(searchPaths: readonly string[] = defaultSkillPaths()) {
+    this.searchPaths = searchPaths;
   }
 
-  /**
-   * Discover and load all skills from search paths.
-   */
+  /** Durchsucht alle Suchpfade und lädt die Skills (erster Fund eines Namens gewinnt). */
   load(): void {
-    this.skills.clear();
+    console.log(c.label("[Skills]") + " Suche nach Skills...");
 
-    console.log(c.label("[Skills]") + " Scanning for skills...");
-
-    for (const searchPath of this.searchPaths) {
-      const skillFiles = findSkillFiles(searchPath);
-      for (const filePath of skillFiles) {
-        const skill = parseSkillFile(filePath);
-        if (skill && !this.skills.has(skill.name)) {
-          this.skills.set(skill.name, skill);
-        }
-      }
+    const allFiles = this.searchPaths.flatMap((searchPath) => findSkillFiles(searchPath, 0));
+    if (allFiles.length > MAX_SKILL_FILES) {
+      console.warn(
+        c.label("[Skills]") +
+          c.warn(` ${allFiles.length} Skill-Dateien gefunden – nur die ersten ${MAX_SKILL_FILES} werden geladen.`)
+      );
     }
 
-    if (this.skills.size > 0) {
-      const names = Array.from(this.skills.values())
-        .map((s) => s.name)
-        .join(", ");
+    this.skills = allFiles
+      .slice(0, MAX_SKILL_FILES)
+      .map(parseSkillFile)
+      .filter((skill): skill is Skill => skill !== null)
+      .reduce((map, skill) => (map.has(skill.name) ? map : map.set(skill.name, skill)), new Map<string, Skill>());
+
+    if (this.skills.size) {
+      const names = [...this.skills.keys()].join(", ");
       console.log(
-        c.label("[Skills]") +
-          c.success(` Loaded ${this.skills.size} skill(s): `) +
-          c.dim(names)
+        c.label("[Skills]") + c.success(` ${this.skills.size} Skill(s) geladen: `) + c.dim(names)
       );
     } else {
       console.log(
         c.label("[Skills]") +
-          c.dim(" No skills found (add SKILL.md files to skills/ directory)")
+          c.dim(" Keine Skills gefunden (SKILL.md-Dateien in server/skills ablegen)")
       );
     }
   }
 
-  /**
-   * Reload skills (call when files change or on demand).
-   */
+  /** Lädt die Skills neu (z. B. nach Änderungen an den Dateien). */
   reload(): void {
-    const prevCount = this.skills.size;
+    const previousCount = this.skills.size;
     this.load();
-    const diff = this.skills.size - prevCount;
-    if (diff !== 0) {
+    const diff = this.skills.size - previousCount;
+    if (diff) {
       console.log(
-        c.label("[Skills]") +
-          ` Reloaded: ${diff > 0 ? "+" : ""}${diff} skill(s)`
+        c.label("[Skills]") + ` Neu geladen: ${diff > 0 ? "+" : ""}${diff} Skill(s)`
       );
     }
   }
 
-  /**
-   * Get all loaded skills.
-   */
   getAll(): Skill[] {
-    return Array.from(this.skills.values());
+    return [...this.skills.values()];
   }
 
-  /**
-   * Get a skill by name.
-   */
   get(name: string): Skill | undefined {
     return this.skills.get(name);
   }
 
-  /**
-   * Find skills matching a query (by name or trigger).
-   */
-  match(query: string): Skill[] {
-    const lower = query.toLowerCase();
-    return this.getAll().filter(
-      (s) =>
-        s.name.toLowerCase().includes(lower) ||
-        s.trigger.toLowerCase().includes(lower) ||
-        s.description.toLowerCase().includes(lower)
-    );
-  }
-
-  /**
-   * Build a skills summary for the system prompt.
-   */
-  buildSystemPromptSection(): string {
-    if (this.skills.size === 0) return "";
-
+  /** Abschnitt für den Systemprompt: Liste der verfügbaren Skills. */
+  buildSystemPromptSection(toolName: string): string {
+    if (!this.skills.size) return "";
     const lines = [
-      "\n\nAVAILABLE SKILLS:",
-      "You have access to the following specialized skills. When the user's request matches a skill, use its instructions:",
       "",
+      "",
+      "VERFÜGBARE SKILLS:",
+      `Für die folgenden Aufgaben gibt es ausführliche Anleitungen. Wenn eine Anfrage zu einem Skill passt, lade die Anleitung mit dem Werkzeug „${toolName}“ und folge ihr.`,
+      "",
+      ...this.getAll().map((skill) => `- ${skill.name}: ${skill.description}`),
     ];
-
-    for (const skill of this.skills.values()) {
-      lines.push(`- ${skill.name}: ${skill.description}`);
-    }
-
-    lines.push(
-      "",
-      "To use a skill, follow its instructions when the user's request is relevant."
-    );
-
     return lines.join("\n");
   }
 
-  /**
-   * Get skill content to inject into a conversation when matched.
-   */
+  /** Vollständiger Skill-Inhalt für das Werkzeug "skill_laden". */
   getSkillPrompt(name: string): string | null {
     const skill = this.skills.get(name);
-    if (!skill) return null;
-
-    return `[SKILL: ${skill.name}]\n${skill.content}\n[/SKILL]`;
+    return skill ? `[SKILL: ${skill.name}]\n${skill.content}\n[/SKILL]` : null;
   }
 
-  /**
-   * Get count for health endpoint.
-   */
   get count(): number {
     return this.skills.size;
   }
 
-  /**
-   * Get skill info for tools/skills endpoint.
-   */
-  getSkillList(): { name: string; description: string; trigger: string }[] {
-    return this.getAll().map((s) => ({
-      name: s.name,
-      description: s.description,
-      trigger: s.trigger,
+  /** Übersicht für die Endpunkte /skills und /health/details. */
+  getSkillList(): SkillSummary[] {
+    return this.getAll().map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      trigger: skill.trigger,
     }));
   }
 }

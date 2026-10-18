@@ -1,10 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
-// ── Chat API ──
+// ── Chat-API (Vertrag mit der iOS-App – nicht ändern) ──
 
 export interface ChatRequest {
   text: string;
-  images?: string[]; // base64 JPEG strings
+  images?: string[]; // Base64-kodierte JPEG-/PNG-Bilder
   conversation_id?: string;
 }
 
@@ -19,7 +19,7 @@ export interface ChatResponse {
   conversation_id: string;
 }
 
-// ── Config API ──
+// ── Config-API ──
 
 export interface ConfigUpdate {
   system_prompt?: string;
@@ -27,31 +27,28 @@ export interface ConfigUpdate {
   max_tokens?: number;
 }
 
+/** Erlaubte Effort-Stufen der Claude API (output_config.effort). */
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof EFFORT_LEVELS)[number];
+
 export interface ServerConfig {
   systemPrompt: string;
   model: string;
   maxTokens: number;
+  /** null = Parameter nicht senden (z. B. für ältere Modelle ohne Effort-Unterstützung) */
+  effort: Effort | null;
 }
 
 // ── MCP ──
 
 export interface MCPServerConfig {
-  // Local stdio server
+  // Lokaler stdio-Server
   command?: string;
   args?: string[];
   env?: Record<string, string>;
-  // Remote HTTP/SSE server
+  // Entfernter HTTP/SSE-Server
   url?: string;
   headers?: Record<string, string>;
-}
-
-export interface MCPConfigFile {
-  mcpServers: Record<string, MCPServerConfig>;
-}
-
-// Claude Desktop config format
-export interface ClaudeDesktopConfig {
-  mcpServers?: Record<string, MCPServerConfig>;
 }
 
 export interface DiscoveredTool {
@@ -61,10 +58,13 @@ export interface DiscoveredTool {
   inputSchema: Record<string, unknown>;
 }
 
-// ── Conversation ──
+// ── Konversation ──
+// Es wird die Beta-Schnittstelle des SDK genutzt (wegen server-seitiger
+// Fallbacks bei Ablehnungen), daher die Beta-Typen.
 
-export type MessageParam = Anthropic.MessageParam;
-export type ContentBlock = Anthropic.ContentBlock;
-export type ToolUseBlock = Anthropic.ToolUseBlock;
-export type ToolResultBlockParam = Anthropic.ToolResultBlockParam;
-export type Tool = Anthropic.Tool;
+export type MessageParam = Anthropic.Beta.BetaMessageParam;
+export type ContentBlockParam = Anthropic.Beta.BetaContentBlockParam;
+export type ContentBlock = Anthropic.Beta.BetaContentBlock;
+export type ToolUseBlock = Anthropic.Beta.BetaToolUseBlock;
+export type ToolResultBlockParam = Anthropic.Beta.BetaToolResultBlockParam;
+export type Tool = Anthropic.Beta.BetaTool;
