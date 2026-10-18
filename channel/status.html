@@ -1,0 +1,207 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RayBanClaude Channel</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'JetBrains Mono', monospace; background: #0a0a0a; color: #c0c0c0; min-height: 100vh; overflow-x: hidden; }
+  .scanline { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 999;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.05) 2px, rgba(0,0,0,0.05) 4px); }
+  .container { max-width: 640px; margin: 0 auto; padding: 24px 20px; position: relative; z-index: 1; }
+  .ascii-header { text-align: center; margin-bottom: 24px; }
+  .ascii-art { color: #E87B35; font-size: 10px; line-height: 1.2; white-space: pre; display: inline-block; text-shadow: 0 0 10px rgba(232,123,53,0.5), 0 0 20px rgba(232,123,53,0.2); }
+  .tagline { color: #E87B35; font-size: 12px; margin-top: 8px; opacity: 0.8; }
+  .card { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; margin: 12px 0; position: relative; overflow: hidden; }
+  .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, #E87B35, transparent); opacity: 0.3; }
+  .card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #666; }
+  .card-header .icon { color: #E87B35; }
+  .status-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #1a1a1a; font-size: 13px; }
+  .status-row:last-child { border-bottom: none; }
+  .status-label { color: #666; }
+  .status-value { color: #c0c0c0; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot-green { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.5); }
+  .dot-yellow { background: #facc15; box-shadow: 0 0 8px rgba(250,204,21,0.5); }
+  .dot-red { background: #f87171; box-shadow: 0 0 8px rgba(248,113,113,0.5); }
+  .token-card { border-color: #E87B35; background: #0d0800; }
+  .token-card::before { opacity: 0.8; }
+  .token-value { font-size: 16px; color: #E87B35; letter-spacing: 3px; word-break: break-all; text-align: center; padding: 12px 0;
+    text-shadow: 0 0 8px rgba(232,123,53,0.4); cursor: pointer; }
+  .btn-row { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+  .btn { font-family: inherit; font-size: 12px; padding: 8px 16px; border-radius: 6px; cursor: pointer; border: 1px solid #333;
+    background: #1a1a1a; color: #c0c0c0; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+  .btn:hover { background: #222; border-color: #E87B35; color: #E87B35; }
+  .btn-primary { background: #E87B35; color: #000; border-color: #E87B35; font-weight: 700; }
+  .btn-primary:hover { background: #ff9a4d; }
+  .ip-value { font-size: 20px; color: #4ade80; text-align: center; padding: 8px 0;
+    text-shadow: 0 0 8px rgba(74,222,128,0.4); cursor: pointer; }
+  .clients-badge { display: inline-flex; align-items: center; gap: 4px; background: #1a1a1a; border: 1px solid #333;
+    border-radius: 12px; padding: 2px 10px; font-size: 11px; }
+  .msg-row { display: flex; gap: 8px; margin-top: 8px; }
+  .msg-input { flex: 1; font-family: inherit; font-size: 12px; padding: 8px 12px; border-radius: 6px; border: 1px solid #333;
+    background: #111; color: #c0c0c0; outline: none; }
+  .msg-input:focus { border-color: #E87B35; }
+  .msg-input::placeholder { color: #444; }
+  .footer { text-align: center; margin-top: 24px; font-size: 10px; color: #333; }
+  .footer a { color: #E87B35; text-decoration: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .pulse { animation: pulse 2s infinite; }
+  @keyframes glow { 0%,100% { text-shadow: 0 0 10px rgba(232,123,53,0.5); } 50% { text-shadow: 0 0 20px rgba(232,123,53,0.8), 0 0 40px rgba(232,123,53,0.3); } }
+  .glow { animation: glow 3s infinite; }
+  .blurred { filter: blur(8px); transition: filter 0.3s; user-select: none; }
+  .blurred.revealed { filter: none; user-select: all; }
+  .reveal-btn { font-family: inherit; font-size: 11px; padding: 4px 12px; border-radius: 4px; cursor: pointer;
+    border: 1px solid #333; background: #1a1a1a; color: #888; transition: all 0.2s; margin-left: 8px; }
+  .reveal-btn:hover { border-color: #E87B35; color: #E87B35; }
+</style>
+</head><body>
+<div class="scanline"></div>
+<div class="container">
+  <div class="ascii-header">
+    <pre class="ascii-art glow">
+██╗   ██╗ ██╗ ███████╗ ██╗  ██████╗  ███╗   ██╗
+██║   ██║ ██║ ██╔════╝ ██║ ██╔═══██╗ ████╗  ██║
+██║   ██║ ██║ ███████╗ ██║ ██║   ██║ ██╔██╗ ██║
+╚██╗ ██╔╝ ██║ ╚════██║ ██║ ██║   ██║ ██║╚██╗██║
+ ╚████╔╝  ██║ ███████║ ██║ ╚██████╔╝ ██║ ╚████║
+  ╚═══╝   ╚═╝ ╚══════╝ ╚═╝  ╚═════╝  ╚═╝  ╚═══╝
+
+ ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗
+██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝
+██║     ██║     ███████║██║   ██║██║  ██║█████╗
+██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝
+╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗
+ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝</pre>
+    <div class="tagline">[ Let Claude see the world through your eyes ]</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="icon">▸</span> SYSTEM STATUS</div>
+    <div class="status-row"><span class="status-label">Server</span><span class="status-value"><span class="dot dot-green pulse"></span>Running</span></div>
+    <div class="status-row"><span class="status-label">Mode</span><span class="status-value">Claude Code Channel</span></div>
+    <div class="status-row"><span class="status-label">Port</span><span class="status-value" id="port">18790</span></div>
+    <div class="status-row"><span class="status-label">TTS</span><span class="status-value" id="tts-status"><span class="dot dot-yellow"></span>Checking...</span></div>
+    <div class="status-row"><span class="status-label">Clients</span><span class="status-value"><span class="clients-badge" id="clients"><span class="dot dot-yellow"></span>0 connected</span></span></div>
+  </div>
+
+  <div class="card token-card">
+    <div class="card-header"><span class="icon">▸</span> 🔐 CHANNEL TOKEN</div>
+    <div class="token-value glow blurred" id="token" onclick="copy('token')">loading...</div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="copy('token')" id="copy-token-btn">📋 Copy Token</button>
+      <button class="reveal-btn" onclick="toggleReveal('token',this)">👁 Reveal</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="icon">▸</span> 📱 iOS APP CONNECTION</div>
+    <div class="status-row"><span class="status-label">Host (Mac IP)</span><span class="status-value blurred" style="color:#4ade80;cursor:pointer" id="ip" onclick="copy('ip')">detecting...</span></div>
+    <div class="status-row"><span class="status-label">Port</span><span class="status-value" id="port-display">18790</span></div>
+    <div class="status-row"><span class="status-label">WebSocket</span><span class="status-value blurred" id="ws-url" style="font-size:11px">ws://...</span></div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn" onclick="copy('ip')" id="copy-ip-btn">📋 Copy IP</button>
+      <button class="btn" onclick="copyAll()" id="copy-all-btn">📋 Copy All Settings</button>
+      <button class="reveal-btn" onclick="toggleRevealAll(this)">👁 Reveal All</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="icon">▸</span> 💬 SEND TO PHONE VIA iMESSAGE</div>
+    <div style="font-size:11px;color:#666;margin-bottom:8px;">Send connection details or a custom message to your iPhone via iMessage. No SIM required on Mac — uses your Apple ID.</div>
+    <div class="msg-row">
+      <input class="msg-input" id="sms-phone" placeholder="Phone number or Apple ID email..." style="max-width:200px" value="">
+      <button class="btn btn-primary" onclick="sendQuickSetup()" id="sms-quick-btn">Send Setup Info</button>
+    </div>
+    <div class="msg-row" style="margin-top:6px">
+      <input class="msg-input" id="sms-custom" placeholder="Or type a custom message..." onkeydown="if(event.key==='Enter')sendCustomSMS()">
+      <button class="btn" onclick="sendCustomSMS()" id="sms-send-btn">Send ▸</button>
+    </div>
+    <div id="sms-status" style="font-size:11px;color:#666;margin-top:6px;min-height:16px;"></div>
+    <div style="font-size:9px;color:#333;margin-top:8px;">Requires macOS Messages app with iMessage enabled. Works Mac → iPhone/iPad/Mac only (Apple devices).</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="icon">▸</span> 🎙 ELEVENLABS TTS</div>
+    <div class="msg-row">
+      <input class="msg-input" id="eleven-key" type="password" placeholder="Paste your ElevenLabs API key...">
+      <button class="btn" onclick="saveElevenKey()">Save & Apply</button>
+    </div>
+    <div id="eleven-status" style="font-size:11px;color:#666;margin-top:6px;min-height:16px;">Checking...</div>
+    <div style="font-size:10px;color:#444;margin-top:8px;">Get a free key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:#E87B35">elevenlabs.io</a> — enables natural voice responses. Without it, Apple's built-in TTS is used.</div>
+  </div>
+
+  <!-- Help / Quick Reference -->
+  <div class="card" style="border-color:#222;">
+    <div class="card-header"><span class="icon">▸</span> 📖 QUICK REFERENCE</div>
+    <div style="font-size:11px;line-height:1.8;color:#888;">
+      <div style="margin-bottom:8px;color:#c0c0c0;font-size:12px;">Getting Started</div>
+      <div>1. Copy the <span style="color:#E87B35">Token</span> and <span style="color:#4ade80">Host IP</span> above</div>
+      <div>2. Open RayBanClaude on your iPhone → <span style="color:#c0c0c0">Settings</span></div>
+      <div>3. Enter Host, Port (<span style="color:#c0c0c0">18790</span>), and Channel Token</div>
+      <div>4. Tap <span style="color:#c0c0c0">Connect</span> → green status = ready</div>
+      <div>5. Point camera and speak — Claude sees + responds</div>
+
+      <div style="margin:12px 0 8px;color:#c0c0c0;font-size:12px;">Useful Commands</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+        <span style="color:#666;">Start channel:</span><code style="background:#1a1a1a;padding:1px 6px;border-radius:3px;font-size:10px;color:#E87B35;">claude --dangerously-load-development-channels "server:raybanclaude"</code>
+        <span style="color:#666;">Auto-approve replies:</span><code style="background:#1a1a1a;padding:1px 6px;border-radius:3px;font-size:10px;color:#E87B35;">--allowedTools "mcp__raybanclaude__*"</code>
+        <span style="color:#666;">Hands-free mode:</span><code style="background:#1a1a1a;padding:1px 6px;border-radius:3px;font-size:10px;color:#E87B35;">-p bypassPermissions</code>
+        <span style="color:#666;">Health check:</span><code style="background:#1a1a1a;padding:1px 6px;border-radius:3px;font-size:10px;color:#E87B35;">curl localhost:18790/health</code>
+      </div>
+
+      <div style="margin:12px 0 8px;color:#c0c0c0;font-size:12px;">Troubleshooting</div>
+      <div><span style="color:#E87B35;">App won't connect?</span> Make sure phone and Mac are on the same WiFi network</div>
+      <div><span style="color:#E87B35;">401 errors?</span> Token in app must match the one shown above</div>
+      <div><span style="color:#E87B35;">No voice response?</span> Add your ElevenLabs key above, or check volume</div>
+      <div><span style="color:#E87B35;">Glasses not streaming?</span> Enable Developer Mode in Meta AI app → restart glasses</div>
+      <div><span style="color:#E87B35;">Port in use?</span> <code style="background:#1a1a1a;padding:1px 6px;border-radius:3px;font-size:10px;color:#E87B35;">lsof -ti:18790 | xargs kill -9</code></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a href="https://github.com/MoinMornhart/RayBanClaude">github.com/MoinMornhart/RayBanClaude</a> · <a href="https://github.com/MoinMornhart/RayBanClaude/issues">Report Issue</a><br>
+    Built by <a href="https://github.com/mrdulasolutions">@mrdulasolutions</a><br>
+    <span style="color:#222;font-size:9px;">Not affiliated with Anthropic, Meta, or ElevenLabs</span>
+  </div>
+</div>
+
+<script>
+var TOKEN='';
+fetch('/token').then(r=>r.json()).then(d=>{TOKEN=d.token;document.getElementById('token').textContent=d.token}).catch(()=>{document.getElementById('token').textContent='Open from localhost to see token'});
+fetch('/local-ip').then(r=>r.json()).then(d=>{var ip=d.preferred||'unknown';document.getElementById('ip').textContent=ip;document.getElementById('ws-url').textContent='ws://'+ip+':'+document.getElementById('port').textContent+'/ws'}).catch(()=>{document.getElementById('ip').textContent='Run: ifconfig | grep inet'});
+fetch('/health').then(r=>r.json()).then(d=>{document.getElementById('tts-status').innerHTML=d.tts?'<span class="dot dot-green"></span>ElevenLabs':'<span class="dot dot-yellow"></span>Apple (add key below)';document.getElementById('clients').innerHTML='<span class="dot '+(d.clients>0?'dot-green':'dot-yellow')+'"></span>'+d.clients+' connected';document.getElementById('eleven-status').textContent=d.tts?'Key configured ✅':'No key set — using Apple TTS'}).catch(()=>{});
+setInterval(()=>{fetch('/health').then(r=>r.json()).then(d=>{document.getElementById('clients').innerHTML='<span class="dot '+(d.clients>0?'dot-green':'dot-yellow')+'"></span>'+d.clients+' connected'}).catch(()=>{})},3000);
+
+function copy(id){var t=document.getElementById(id).textContent;navigator.clipboard.writeText(t).then(()=>{var btn=document.getElementById('copy-'+id+'-btn');if(btn){var o=btn.textContent;btn.textContent='✅ Copied!';setTimeout(()=>btn.textContent=o,2000)}})}
+function toggleReveal(id,btn){var el=document.getElementById(id);el.classList.toggle('revealed');btn.textContent=el.classList.contains('revealed')?'🙈 Hide':'👁 Reveal'}
+function toggleRevealAll(btn){var els=document.querySelectorAll('#ip,#ws-url');var show=!els[0].classList.contains('revealed');els.forEach(el=>{show?el.classList.add('revealed'):el.classList.remove('revealed')});btn.textContent=show?'🙈 Hide All':'👁 Reveal All'}
+function copyAll(){var token=document.getElementById('token').textContent;var ip=document.getElementById('ip').textContent;var port=document.getElementById('port').textContent;navigator.clipboard.writeText('Host: '+ip+'\nPort: '+port+'\nToken: '+token).then(()=>{var b=document.getElementById('copy-all-btn');b.textContent='✅ Copied!';setTimeout(()=>b.textContent='📋 Copy All Settings',2000)})}
+
+
+function sendSMS(phone,message,statusEl){
+  var s=document.getElementById(statusEl);
+  s.textContent='Sending via iMessage...';s.style.color='#E87B35';
+  fetch('/send-sms',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},body:JSON.stringify({phone:phone,message:message})})
+  .then(r=>r.json()).then(d=>{if(d.ok){s.textContent='✅ Sent via iMessage!';s.style.color='#4ade80'}else{s.textContent='❌ '+(d.error||'Failed');s.style.color='#f87171'}})
+  .catch(e=>{s.textContent='❌ '+e.message;s.style.color='#f87171'});
+  setTimeout(()=>{s.textContent=''},5000)
+}
+function sendQuickSetup(){
+  var phone=document.getElementById('sms-phone').value.trim();
+  if(!phone){document.getElementById('sms-status').textContent='Enter a phone number';document.getElementById('sms-status').style.color='#f87171';return}
+  var ip=document.getElementById('ip').textContent;
+  var port=document.getElementById('port').textContent;
+  var msg='RayBanClaude Setup\n\nHost: '+ip+'\nPort: '+port+'\nToken: '+TOKEN+'\n\nEnter these in the RayBanClaude app → Settings → Connect';
+  sendSMS(phone,msg,'sms-status')
+}
+function sendCustomSMS(){
+  var phone=document.getElementById('sms-phone').value.trim();
+  var msg=document.getElementById('sms-custom').value.trim();
+  if(!phone){document.getElementById('sms-status').textContent='Enter a phone number';document.getElementById('sms-status').style.color='#f87171';return}
+  if(!msg){document.getElementById('sms-status').textContent='Enter a message';document.getElementById('sms-status').style.color='#f87171';return}
+  sendSMS(phone,msg,'sms-status');document.getElementById('sms-custom').value=''
+}
+function saveElevenKey(){var key=document.getElementById('eleven-key').value.trim();var status=document.getElementById('eleven-status');if(!key){status.textContent='Enter a key first';status.style.color='#f87171';return}fetch('/config/tts',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},body:JSON.stringify({key:key})}).then(r=>r.json()).then(d=>{if(d.ok){status.textContent='✅ Key saved & applied! TTS is now active.';status.style.color='#4ade80';document.getElementById('tts-status').innerHTML='<span class="dot dot-green"></span>ElevenLabs';document.getElementById('eleven-key').value=''}else{status.textContent='❌ '+(d.error||'Failed');status.style.color='#f87171'}}).catch(e=>{status.textContent='❌ '+e.message;status.style.color='#f87171'})}
+</script>
+</body></html>

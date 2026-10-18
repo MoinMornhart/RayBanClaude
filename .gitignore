@@ -1,0 +1,54 @@
+# Abhängigkeiten
+node_modules/
+
+# Build-Ausgaben
+server/dist/
+ios/build/
+DerivedData/
+
+# Geheimnisse – niemals committen
+.env
+*.env.local
+ios/Secrets.xcconfig
+
+# Claude-Code-Einstellungen (können Tokens/Keys enthalten)
+.claude/settings.local.json
+
+# Xcode (Projekt wird per XcodeGen aus ios/project.yml erzeugt)
+ios/*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+.build/
+Package.resolved
+
+# macOS / Windows
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporär
+tmp/
+*.tmp

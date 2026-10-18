@@ -1,0 +1,42 @@
+name: RayBanClaude
+options:
+  bundleIdPrefix: com.raybanclaude
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "26.0"
+
+packages:
+  meta-wearables-dat-ios:
+    url: https://github.com/facebook/meta-wearables-dat-ios
+    from: "0.5.0"
+
+targets:
+  RayBanClaude:
+    type: application
+    platform: iOS
+    sources:
+      - RayBanClaude
+    dependencies:
+      - package: meta-wearables-dat-ios
+        product: MWDATCore
+      - package: meta-wearables-dat-ios
+        product: MWDATCamera
+    settings:
+      base:
+        INFOPLIST_FILE: RayBanClaude/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        PRODUCT_BUNDLE_IDENTIFIER: com.raybanclaude.app
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        DEVELOPMENT_TEAM: ""
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+schemes:
+  RayBanClaude:
+    build:
+      targets:
+        RayBanClaude: all
+    run:
+      config: Debug
