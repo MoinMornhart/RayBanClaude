@@ -1,52 +1,40 @@
 ---
 name: raybanclaude-configure
-description: Configure RayBanClaude channel settings — ElevenLabs API key, voice, and port
+description: RayBan Claude Channel einrichten – Kopplung mit dem iPhone, optionale ElevenLabs-Stimme und Port
 ---
 
-# Configure RayBanClaude Channel
+# RayBan Claude Channel einrichten
 
-The RayBanClaude channel stores its settings in `~/.claude/channels/raybanclaude/.env`.
+Der Channel speichert seine Einstellungen in `~/.claude/channels/raybanclaude/`
+(Windows: `%USERPROFILE%\.claude\channels\raybanclaude\`).
 
-## Setup Steps
+## Koppeln (empfohlen)
 
-1. **Create the env file** if it doesn't exist:
-   ```
-   mkdir -p ~/.claude/channels/raybanclaude
-   touch ~/.claude/channels/raybanclaude/.env
-   ```
+1. Claude Code mit dem Channel starten:
+   `claude --dangerously-load-development-channels server:raybanclaude`
+2. Dashboard öffnen: <http://localhost:18790>
+3. Den QR-Code mit der iPhone-Kamera scannen → „In RayBan Claude öffnen“ → bestätigen.
 
-2. **Set the ElevenLabs API key** for voice responses:
-   ```
-   ELEVENLABS_API_KEY=your_key_here
-   ```
+Handy und PC müssen im selben WLAN sein. Unter Windows beim ersten Start die
+Firewall-Abfrage für **private Netzwerke** erlauben.
 
-3. **Set the voice** (optional, defaults to Charlotte):
-   Available voices:
-   - `XB0fDUnXU5powFXDhCwa` — Charlotte (default, warm female)
-   - `21m00Tcm4TlvDq8ikWAM` — Rachel (calm female)
-   - `29vD33N1CtxCmqQRPOHJ` — Drew (male)
-   - `2EiwWnXFnvU5JabPnv8n` — Clyde (deep male)
-   - `EXAVITQu4vr4xnSDxMaL` — Sarah (soft female)
-   - `MF3mGyEYCl7XYWbV9V6O` — Elli (young female)
-   - `TxGEqnHWrfWFTfGW9XjX` — Josh (male)
-   - `VR6AewLTigWG4xSOukaG` — Arnold (deep male)
-   - `pNInz6obpgDQGcFmaJgB` — Adam (male)
-   - `yoZ06aMxZJJ28mfd3POQ` — Sam (male)
-   ```
-   ELEVENLABS_VOICE_ID=XB0fDUnXU5powFXDhCwa
-   ```
+## Optionale Einstellungen (`.env` im Ordner oben)
 
-4. **Set the port** (optional, defaults to 18790):
-   ```
-   RAYBANCLAUDE_PORT=18790
-   ```
+```
+# Natürlichere Stimme (kostenpflichtig, ohne Key spricht das iPhone kostenlos)
+ELEVENLABS_API_KEY=
+ELEVENLABS_VOICE_ID=XB0fDUnXU5powFXDhCwa
 
-5. **Restart the channel** — Claude Code will re-spawn it automatically.
+# Anderer Port (Standard 18790)
+RAYBANCLAUDE_PORT=18790
 
-## Connecting the iOS App
+# Dashboard bei jedem Start öffnen (1) bzw. nie öffnen (RAYBANCLAUDE_NO_BROWSER=1)
+RAYBANCLAUDE_OPEN_DASHBOARD=0
+```
 
-1. Make sure your iPhone is on the same WiFi network as your Mac
-2. Open RayBanClaude on your phone
-3. Go to Settings → Gateway Host
-4. Enter your Mac's local IP and port (e.g., `192.168.1.100:18790`)
-5. The app connects via WebSocket — you'll see "Connected" in the status bar
+ElevenLabs-Key und Stimme lassen sich auch direkt im Dashboard setzen.
+
+## Token zurücksetzen
+
+Datei `.channel-token` im Ordner oben löschen und Claude neu starten – danach
+den QR-Code neu scannen.
