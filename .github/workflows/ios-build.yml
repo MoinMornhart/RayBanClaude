@@ -56,6 +56,12 @@ jobs:
             build 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" build.log
 
+      - name: Compiler-Warnungen im eigenen Code
+        working-directory: ios
+        run: |
+          grep -E "RayBanClaude/.*warning:" build.log | sed 's|.*/RayBanClaude/||' | sort -u | head -100 || true
+          echo "Anzahl: $(grep -cE 'RayBanClaude/.*warning:' build.log || true)"
+
       - name: Fehlerausgabe
         if: failure()
         working-directory: ios
