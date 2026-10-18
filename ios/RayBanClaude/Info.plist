@@ -7,7 +7,7 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleDisplayName</key>
-	<string>RayBanClaude</string>
+	<string>RayBan Claude</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleShortVersionString</key>
@@ -17,23 +17,26 @@
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<string>de</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>RayBanClaude needs camera access to capture frames for Claude's visual analysis.</string>
+	<string>RayBan Claude braucht die Kamera, damit Claude sehen kann, was du ihm zeigst, und um QR-Codes zu erkennen.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>RayBanClaude needs microphone access for voice conversations with Claude.</string>
+	<string>RayBan Claude braucht das Mikrofon, damit du per Sprache mit Claude reden kannst.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>RayBanClaude uses speech recognition to transcribe your voice for Claude.</string>
+	<string>RayBan Claude wandelt deine Sprache auf dem iPhone in Text um.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>RayBanClaude connects to the Claude Gateway server on your local network.</string>
+	<string>RayBan Claude verbindet sich mit deinem PC im lokalen WLAN und mit deiner Ray-Ban Meta.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_http._tcp</string>
+		<string>_bonjour._tcp</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>RayBanClaude uses Bluetooth to connect to Meta Ray-Ban Smart Glasses.</string>
+	<string>RayBan Claude nutzt Bluetooth für die Verbindung zur Ray-Ban Meta (Kamera, Mikrofon, Lautsprecher).</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -58,6 +61,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>bluetooth-central</string>
 		<string>bluetooth-peripheral</string>
 		<string>external-accessory</string>
 	</array>
@@ -67,8 +71,6 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>RayBanClaude uses Bluetooth to receive audio from Meta Ray-Ban Smart Glasses.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -85,6 +87,11 @@
 		<key>TeamID</key>
 		<string>$(DEVELOPMENT_TEAM)</string>
 		<key>Analytics</key>
+		<dict>
+			<key>OptOut</key>
+			<true/>
+		</dict>
+		<key>CrashReporting</key>
 		<dict>
 			<key>OptOut</key>
 			<true/>

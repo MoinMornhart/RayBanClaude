@@ -1,34 +1,51 @@
 import Foundation
-import AVFoundation
 
-/// Bridges the iOS app to either:
-/// - Channel mode (WebSocket → Claude Code session, uses ALL your MCP tools + skills)
-/// - Gateway mode (REST → standalone gateway server, uses Claude API)
-///
-/// Channel mode is the default and preferred mode.
-class ClaudeBridge: NSObject, ObservableObject, URLSessionWebSocketDelegate {
-    @Published var isConnected: Bool = false
-    @Published var mode: ConnectionMode = .channel
-
-    enum ConnectionMode: String {
-        case channel  // WebSocket → Claude Code session
-        case gateway  // REST → gateway server (fallback)
+/// Verbindung zum PC:
+/// - Channel-Modus: WebSocket zur Claude-Code-Sitzung (alle MCP-Tools und Skills, kostenlos mit Abo)
+/// - Gateway-Modus: REST zum eigenständigen Gateway-Server (Anthropic-API-Key)
+@MainActor
+final class ClaudeBridge: NSObject, ObservableObject {
+    enum ConnectionState: Equatable {
+        case disconnected
+        case connecting
+        case connected
+        case failed(String)
     }
 
-    // Callbacks
-    var onReply: ((String, String?) -> Void)?    // (text, audioURL?)
-    var onStatus: ((String) -> Void)?
-    var onThinking: ((String) -> Void)?
-    var onDisconnect: (() -> Void)?
+    @Published private(set) var state: ConnectionState = .disconnected
+    var isConnected: Bool { state == .connected }
 
-    private var webSocket: URLSessionWebSocketTask?
-    private var urlSession: URLSession?
+    // MARK: Rückmeldungen an das ViewModel
+
+    struct Reply {
+        let id: String
+        let text: String
+        let audioPath: String?
+        let replyTo: String?
+        let attachments: [Attachment]
+    }
+
+    var onReply: ((Reply) -> Void)?
+    var onEdit: ((_ id: String, _ text: String) -> Void)?
+    var onAck: ((String) -> Void)?
+    var onCaptureRequest: ((_ id: String, _ reason: String?) -> Void)?
+    var onPermissionRequest: ((PermissionRequest) -> Void)?
+    var onPermissionResolved: ((String) -> Void)?
+    var onServerError: ((String) -> Void)?
+    var onConnected: (() -> Void)?
+    var onDisconnected: (() -> Void)?
+
     private var config: ClaudeConfig
+    private var urlSession: URLSession?
+    private var webSocket: URLSessionWebSocketTask?
     private var conversationId: String?
     private var reconnectAttempts = 0
-    private let maxReconnectAttempts = 5
+    private var reconnectWork: DispatchWorkItem?
     private var isManualDisconnect = false
+    /// Gesetzt bei 401/429 – dann nicht endlos neu verbinden, Meldung stehen lassen
+    private var authFailure: String?
     private var pingTimer: Timer?
+    private let maxReconnectAttempts = 8
 
     init(config: ClaudeConfig) {
         self.config = config
@@ -36,260 +53,358 @@ class ClaudeBridge: NSObject, ObservableObject, URLSessionWebSocketDelegate {
     }
 
     func updateConfig(_ config: ClaudeConfig) {
+        let needsReconnect = config.gatewayHost != self.config.gatewayHost
+            || config.gatewayPort != self.config.gatewayPort
+            || config.channelToken != self.config.channelToken
+            || config.connectionMode != self.config.connectionMode
         self.config = config
+        if needsReconnect && state != .disconnected { disconnect() }
     }
 
-    // MARK: - Channel Mode (WebSocket)
+    // MARK: - Verbinden
 
-    func connectWebSocket() {
+    func connect() async {
         isManualDisconnect = false
         reconnectAttempts = 0
-
-        let wsURL = config.wsURL
-        print("[Bridge] Connecting WebSocket to \(wsURL)")
-
-        let session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
-        self.urlSession = session
-        var request = URLRequest(url: wsURL)
-        if !config.channelToken.isEmpty {
-            request.setValue("Bearer \(config.channelToken)", forHTTPHeaderField: "Authorization")
+        switch config.connectionMode {
+        case .channel: openWebSocket()
+        case .gateway: await connectGateway()
         }
-        let task = session.webSocketTask(with: request)
-        self.webSocket = task
-        task.resume()
-        receiveMessage()
     }
 
     func disconnect() {
         isManualDisconnect = true
+        reconnectWork?.cancel()
+        reconnectWork = nil
+        closeSocket()
+        state = .disconnected
+        onDisconnected?()
+    }
+
+    private func openWebSocket() {
+        guard let wsURL = config.wsURL else {
+            state = .failed("PC-Adresse fehlt – QR-Code im Dashboard scannen")
+            return
+        }
+        guard !config.channelToken.isEmpty else {
+            state = .failed("Token fehlt – QR-Code im Dashboard scannen")
+            return
+        }
+        closeSocket()
+        authFailure = nil
+        state = .connecting
+        // Alte Session freigeben – früher blieben bei jedem Reconnect Sessions samt Delegate hängen
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
+        urlSession = session
+        var request = URLRequest(url: wsURL)
+        request.setValue("Bearer \(config.channelToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        let task = session.webSocketTask(with: request)
+        task.maximumMessageSize = 16 * 1024 * 1024
+        webSocket = task
+        task.resume()
+        receive(on: task)
+    }
+
+    private func closeSocket() {
         pingTimer?.invalidate()
         pingTimer = nil
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
-        isConnected = false
-        onDisconnect?()
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
     }
 
-    private func receiveMessage() {
-        webSocket?.receive { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let message):
-                switch message {
-                case .string(let text):
-                    self.handleWebSocketMessage(text)
-                case .data(let data):
-                    if let text = String(data: data, encoding: .utf8) {
-                        self.handleWebSocketMessage(text)
-                    }
-                @unknown default:
-                    break
-                }
-                self.receiveMessage() // Keep listening
-            case .failure(let error):
-                print("[Bridge] WebSocket receive error: \(error)")
-                DispatchQueue.main.async {
-                    self.isConnected = false
-                    self.attemptReconnect()
+    private func connectGateway() async {
+        state = .connecting
+        do {
+            try await checkAuthorized()
+            state = .connected
+            onConnected?()
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Empfangen
+
+    private func receive(on task: URLSessionWebSocketTask) {
+        task.receive { [weak self] result in
+            Task { @MainActor [weak self] in
+                guard let self, task === self.webSocket else { return } // veraltete Verbindung ignorieren
+                switch result {
+                case .success(.string(let text)):
+                    self.handle(text)
+                    self.receive(on: task)
+                case .success(.data(let data)):
+                    self.handle(String(decoding: data, as: UTF8.self))
+                    self.receive(on: task)
+                case .success:
+                    self.receive(on: task)
+                case .failure(let error):
+                    print("[Verbindung] Empfang beendet: \(error.localizedDescription)")
+                    self.connectionLost()
                 }
             }
         }
     }
 
-    private func handleWebSocketMessage(_ text: String) {
+    private func handle(_ text: String) {
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else { return }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            switch type {
-            case "status":
-                let status = json["status"] as? String ?? ""
-                print("[Bridge] Status: \(status)")
-                if status == "connected" {
-                    self.isConnected = true
-                    self.reconnectAttempts = 0
-                    self.startPingTimer()
-                }
-                self.onStatus?(status)
-
-            case "reply":
-                let replyText = json["text"] as? String ?? ""
-                let audioUrl = json["audio_url"] as? String
-                let fullAudioUrl: String?
-                if let audioPath = audioUrl {
-                    fullAudioUrl = "http://\(self.config.gatewayHost):\(self.config.gatewayPort)\(audioPath)"
-                } else {
-                    fullAudioUrl = nil
-                }
-                print("[Bridge] Reply: \(replyText.prefix(80))...")
-                self.onReply?(replyText, fullAudioUrl)
-
-            case "thinking":
-                let thinkText = json["text"] as? String ?? ""
-                self.onThinking?(thinkText)
-
-            default:
-                break
+        switch type {
+        case "status":
+            if json["status"] as? String == "connected" {
+                state = .connected
+                reconnectAttempts = 0
+                startPingTimer()
+                onConnected?()
             }
+        case "ack":
+            if let id = json["id"] as? String { onAck?(id) }
+        case "reply":
+            let files = (json["files"] as? [[String: Any]] ?? []).compactMap { f -> Attachment? in
+                guard let name = f["name"] as? String, let url = f["url"] as? String else { return nil }
+                return Attachment(name: name, path: url)
+            }
+            onReply?(Reply(
+                id: json["id"] as? String ?? UUID().uuidString,
+                text: json["text"] as? String ?? "",
+                audioPath: json["audio_url"] as? String,
+                replyTo: json["reply_to"] as? String,
+                attachments: files
+            ))
+        case "edit":
+            if let id = json["id"] as? String, let newText = json["text"] as? String { onEdit?(id, newText) }
+        case "capture_request":
+            if let id = json["id"] as? String { onCaptureRequest?(id, json["reason"] as? String) }
+        case "permission_request":
+            if let id = json["request_id"] as? String {
+                onPermissionRequest?(PermissionRequest(
+                    id: id,
+                    toolName: json["tool_name"] as? String ?? "Tool",
+                    description: json["description"] as? String ?? "",
+                    inputPreview: json["input_preview"] as? String ?? ""
+                ))
+            }
+        case "permission_resolved":
+            if let id = json["request_id"] as? String { onPermissionResolved?(id) }
+        case "error":
+            onServerError?(json["message"] as? String ?? "Unbekannter Serverfehler")
+        default:
+            break
         }
     }
 
-    // MARK: - Send Messages
+    // MARK: - Wiederverbinden
 
-    /// Send text + optional image via WebSocket (channel mode)
-    func sendMessage(text: String, image: Data? = nil, source: String = "iphone") {
-        guard mode == .channel else {
-            // Fallback to REST
-            Task { try? await chatREST(text: text, images: image.map { [$0] } ?? []) }
+    private func connectionLost() {
+        closeSocket()
+        if let authFailure {
+            state = .failed(authFailure)
             return
         }
-
-        var payload: [String: Any] = [
-            "id": "ios-\(Date().timeIntervalSince1970)",
-            "text": text,
-            "source": source,
-        ]
-
-        if let imageData = image {
-            payload["image"] = imageData.base64EncodedString()
-        }
-
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
-              let jsonString = String(data: jsonData, encoding: .utf8) else { return }
-
-        webSocket?.send(.string(jsonString)) { error in
-            if let error {
-                print("[Bridge] WebSocket send error: \(error)")
-            }
-        }
-
-        print("[Bridge] Sent: \"\(text.prefix(60))\" source=\(source) image=\(image != nil)")
+        guard state != .disconnected else { return }
+        state = .failed("Verbindung zum PC verloren")
+        onDisconnected?()
+        scheduleReconnect()
     }
 
-    /// Upload image via HTTP multipart (for large images, avoids base64 bloat over WS)
-    func uploadImage(text: String, image: Data, source: String = "iphone") async throws {
-        let url = URL(string: "http://\(config.gatewayHost):\(config.gatewayPort)/upload")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        if !config.channelToken.isEmpty {
-            request.setValue("Bearer \(config.channelToken)", forHTTPHeaderField: "Authorization")
-        }
-
-        let boundary = "RayBanClaude-\(UUID().uuidString)"
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        var body = Data()
-        let fields: [(String, String)] = [
-            ("id", "ios-\(Date().timeIntervalSince1970)"),
-            ("text", text),
-            ("source", source),
-        ]
-        for (key, value) in fields {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(value)\r\n".data(using: .utf8)!)
-        }
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"image\"; filename=\"frame.jpg\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-        body.append(image)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-
-        request.httpBody = body
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 204 else {
-            throw ClaudeBridgeError.serverError(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0, message: "Upload failed")
-        }
-        print("[Bridge] Uploaded \(source) image (\(image.count / 1024)KB)")
-    }
-
-    // MARK: - Gateway Mode (REST fallback)
-
-    func chatREST(text: String, images: [Data] = []) async throws -> ChatResponse {
-        let base64Images = images.map { $0.base64EncodedString() }
-        let request = ChatRequest(text: text, images: base64Images, conversation_id: conversationId)
-
-        var urlRequest = URLRequest(url: config.chatURL)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.timeoutInterval = 60
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw ClaudeBridgeError.serverError(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0, message: body)
-        }
-
-        let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
-        conversationId = chatResponse.conversation_id
-        return chatResponse
-    }
-
-    func checkHealth() async throws -> HealthResponse {
-        let url = config.healthURL
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try JSONDecoder().decode(HealthResponse.self, from: data)
-    }
-
-    // MARK: - Reconnection
-
-    private func attemptReconnect() {
-        guard !isManualDisconnect, reconnectAttempts < maxReconnectAttempts else {
-            print("[Bridge] Giving up reconnection after \(reconnectAttempts) attempts")
+    /// Exponentielles Backoff; früher wurde der Zähler bei jedem Versuch zurückgesetzt
+    /// und zwei Wege lösten parallel Reconnects aus.
+    private func scheduleReconnect() {
+        guard !isManualDisconnect, authFailure == nil, config.connectionMode == .channel, reconnectWork == nil else { return }
+        guard reconnectAttempts < maxReconnectAttempts else {
+            state = .failed("PC nicht erreichbar – läuft Claude Code mit dem Channel?")
             return
         }
         reconnectAttempts += 1
-        let delay = min(Double(reconnectAttempts) * 2.0, 10.0)
-        print("[Bridge] Reconnecting in \(delay)s (attempt \(reconnectAttempts))")
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.connectWebSocket()
+        let delay = min(pow(2.0, Double(reconnectAttempts - 1)), 30.0)
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.reconnectWork = nil
+                guard !self.isManualDisconnect, self.authFailure == nil else { return }
+                self.openWebSocket()
+            }
         }
+        reconnectWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func startPingTimer() {
         pingTimer?.invalidate()
-        pingTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.webSocket?.sendPing { error in
-                if let error {
-                    print("[Bridge] Ping failed: \(error)")
+        pingTimer = Timer.scheduledTimer(withTimeInterval: 25, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.webSocket?.sendPing { error in
+                    if let error { print("[Verbindung] Ping fehlgeschlagen: \(error.localizedDescription)") }
                 }
             }
         }
     }
 
-    // MARK: - URLSessionWebSocketDelegate
+    // MARK: - Senden (Channel)
 
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol proto: String?) {
-        print("[Bridge] WebSocket opened")
+    struct Outgoing {
+        let id: String
+        let text: String
+        let source: FrameSourceType
+        let mode: VisionMode
+        var image: Data?
+        var inReplyTo: String?
     }
 
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        print("[Bridge] WebSocket closed: \(closeCode)")
-        DispatchQueue.main.async { [weak self] in
-            self?.isConnected = false
-            self?.attemptReconnect()
+    /// Sendet über den WebSocket; große Bilder per HTTP-Upload (spart Base64-Aufblähung).
+    func send(_ message: Outgoing) async throws {
+        guard state == .connected else { throw BridgeError.notConnected }
+        if let image = message.image, image.count > 100_000 {
+            do {
+                try await upload(message, image: image)
+                return
+            } catch {
+                print("[Verbindung] Upload fehlgeschlagen, sende per WebSocket: \(error.localizedDescription)")
+            }
         }
+        var payload: [String: Any] = [
+            "type": "message",
+            "id": message.id,
+            "text": message.text,
+            "source": message.source.wireName,
+            "mode": message.mode.name,
+            "mode_prompt": message.mode.systemPrompt,
+        ]
+        if let image = message.image { payload["image"] = image.base64EncodedString() }
+        if let reply = message.inReplyTo { payload["in_reply_to"] = reply }
+        try await sendJSON(payload)
+    }
+
+    func sendPermission(requestId: String, allow: Bool) async throws {
+        try await sendJSON(["type": "permission", "request_id": requestId, "behavior": allow ? "allow" : "deny"])
+    }
+
+    private func sendJSON(_ payload: [String: Any]) async throws {
+        guard let socket = webSocket else { throw BridgeError.notConnected }
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        try await socket.send(.string(String(decoding: data, as: UTF8.self)))
+    }
+
+    private func upload(_ message: Outgoing, image: Data) async throws {
+        guard let url = config.uploadURL else { throw BridgeError.notConfigured }
+        var request = authorizedRequest(url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        let boundary = "RayBanClaude-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var fields: [(String, String)] = [
+            ("id", message.id), ("text", message.text), ("source", message.source.wireName),
+            ("mode", message.mode.name), ("mode_prompt", message.mode.systemPrompt),
+        ]
+        if let reply = message.inReplyTo { fields.append(("in_reply_to", reply)) }
+
+        var body = Data()
+        for (key, value) in fields {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(key)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"image\"; filename=\"frame.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
+        body.append(image)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        request.httpBody = body
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        // Der Server antwortet mit 202 (früher wurde nur 204 akzeptiert)
+        guard (200...299).contains(status) else { throw BridgeError.http(status) }
+    }
+
+    // MARK: - Gateway-Modus (REST)
+
+    func chatREST(text: String, images: [Data]) async throws -> ChatResponse {
+        guard let url = config.chatURL else { throw BridgeError.notConfigured }
+        var request = authorizedRequest(url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(ChatRequest(
+            text: text, images: images.map { $0.base64EncodedString() }, conversation_id: conversationId
+        ))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { throw BridgeError.http(status) }
+        let chat = try JSONDecoder().decode(ChatResponse.self, from: data)
+        conversationId = chat.conversation_id
+        return chat
     }
 
     func resetConversation() {
         conversationId = nil
     }
+
+    // MARK: - Hilfen
+
+    /// Anfrage mit Token – für den Channel als Bearer, für das Gateway zusätzlich als X-Gateway-Key.
+    func authorizedRequest(_ url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(config.channelToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(config.channelToken, forHTTPHeaderField: "X-Gateway-Key")
+        return request
+    }
+
+    func fileRequest(_ path: String) -> URLRequest? {
+        config.fileURL(path).map(authorizedRequest)
+    }
+
+    /// Prüft Erreichbarkeit UND Token (der öffentliche /health-Endpunkt allein reicht dafür nicht).
+    func checkAuthorized() async throws {
+        guard let url = config.authCheckURL else { throw BridgeError.notConfigured }
+        var request = authorizedRequest(url)
+        request.timeoutInterval = 8
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { throw BridgeError.http(status) }
+    }
 }
 
-enum ClaudeBridgeError: LocalizedError {
-    case invalidResponse
-    case serverError(statusCode: Int, message: String)
+// MARK: - WebSocket-Delegate
+
+extension ClaudeBridge: URLSessionWebSocketDelegate {
+    nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+                                didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        Task { @MainActor [weak self] in
+            guard let self, webSocketTask === self.webSocket else { return }
+            self.connectionLost()
+        }
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let response = task.response as? HTTPURLResponse, response.statusCode == 401 || response.statusCode == 429 else { return }
+        let status = response.statusCode
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let message = BridgeError.http(status).localizedDescription
+            self.authFailure = message // falsches Token: nicht endlos neu versuchen
+            self.reconnectWork?.cancel()
+            self.reconnectWork = nil
+            self.state = .failed(message)
+        }
+    }
+}
+
+enum BridgeError: LocalizedError {
+    case notConnected
+    case notConfigured
+    case http(Int)
 
     var errorDescription: String? {
         switch self {
-        case .invalidResponse:
-            return "Invalid response from server"
-        case .serverError(let code, let message):
-            return "Server error (\(code)): \(message)"
+        case .notConnected: return "Nicht mit dem PC verbunden"
+        case .notConfigured: return "PC-Adresse fehlt – QR-Code im Dashboard scannen"
+        case .http(401): return "Token falsch – QR-Code im Dashboard neu scannen"
+        case .http(429): return "Zu viele Fehlversuche – 15 Minuten warten"
+        case .http(503): return "Claude ist gerade überlastet – gleich nochmal versuchen"
+        case .http(let code): return "PC antwortet mit Fehler \(code)"
         }
     }
 }

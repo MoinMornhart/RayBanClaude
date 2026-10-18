@@ -2,29 +2,23 @@ import Foundation
 import Speech
 import AVFoundation
 
-// MARK: - ElevenLabs Voice Directory
+// MARK: - ElevenLabs-Stimmen (optional, kostenpflichtig)
 
-struct ElevenLabsVoice: Identifiable, Codable, Hashable {
+struct ElevenLabsVoice: Identifiable, Hashable {
     let id: String
     let name: String
     let description: String
-    let gender: String
 
-    var icon: String {
-        gender == "female" ? "person.crop.circle.fill" : "person.crop.circle"
-    }
-
+    /// Alle Stimmen sprechen mit dem Modell eleven_flash_v2_5 auch Deutsch.
     static let allVoices: [ElevenLabsVoice] = [
-        ElevenLabsVoice(id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", description: "Calm & warm", gender: "female"),
-        ElevenLabsVoice(id: "29vD33N1CtxCmqQRPOHJ", name: "Drew", description: "Well-rounded", gender: "male"),
-        ElevenLabsVoice(id: "2EiwWnXFnvU5JabPnv8n", name: "Clyde", description: "Deep & strong", gender: "male"),
-        ElevenLabsVoice(id: "5Q0t7uMcjvnagumLfvZi", name: "Paul", description: "Ground news", gender: "male"),
-        ElevenLabsVoice(id: "AZnzlk1XvdvUeBnXmlld", name: "Domi", description: "Assertive", gender: "female"),
-        ElevenLabsVoice(id: "CYw3kZ02Hs0563khs1Fj", name: "Dave", description: "British conversational", gender: "male"),
-        ElevenLabsVoice(id: "D38z5RcWu1voky8WS1ja", name: "Fin", description: "Irish", gender: "male"),
-        ElevenLabsVoice(id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah", description: "Soft & young", gender: "female"),
-        ElevenLabsVoice(id: "ErXwobaYiN019PkySvjV", name: "Antoni", description: "Well-rounded", gender: "male"),
-        ElevenLabsVoice(id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", description: "Young & emotional", gender: "female"),
+        ElevenLabsVoice(id: "XB0fDUnXU5powFXDhCwa", name: "Charlotte", description: "Warm, weiblich"),
+        ElevenLabsVoice(id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", description: "Ruhig, weiblich"),
+        ElevenLabsVoice(id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah", description: "Sanft, weiblich"),
+        ElevenLabsVoice(id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", description: "Jung, weiblich"),
+        ElevenLabsVoice(id: "29vD33N1CtxCmqQRPOHJ", name: "Drew", description: "Ausgewogen, männlich"),
+        ElevenLabsVoice(id: "2EiwWnXFnvU5JabPnv8n", name: "Clyde", description: "Tief, männlich"),
+        ElevenLabsVoice(id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", description: "Jung, männlich"),
+        ElevenLabsVoice(id: "pNInz6obpgDQGcFmaJgB", name: "Adam", description: "Klar, männlich"),
     ]
 
     static func voice(for id: String) -> ElevenLabsVoice {
@@ -32,222 +26,201 @@ struct ElevenLabsVoice: Identifiable, Codable, Hashable {
     }
 }
 
-// MARK: - ElevenLabs REST TTS Client (no package dependency)
+/// Direkter ElevenLabs-Aufruf vom iPhone (nur Gateway-Modus; im Channel-Modus erzeugt der PC das Audio)
+struct ElevenLabsTTSClient {
+    let apiKey: String
 
-class ElevenLabsTTSClient {
-    private let apiKey: String
-    private let session = URLSession.shared
-
-    init(apiKey: String) {
-        self.apiKey = apiKey
-    }
-
-    /// Synthesize with optimized latency settings
     func synthesize(text: String, voiceId: String) async throws -> Data {
-        // Use streaming endpoint for lower time-to-first-byte
-        let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(voiceId)/stream")!
+        guard let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(voiceId)/stream") else {
+            throw URLError(.badURL)
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
         request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
         request.timeoutInterval = 15
-
-        let body: [String: Any] = [
-            "text": text,
-            // Flash model — ~75% faster than multilingual_v2, still high quality
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "text": String(text.prefix(2500)),
             "model_id": "eleven_flash_v2_5",
-            "voice_settings": [
-                "stability": 0.5,
-                "similarity_boost": 0.75,
-                "style": 0.0,
-                "use_speaker_boost": true
-            ],
-            // Optimize for low latency
-            "optimize_streaming_latency": 3
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-            throw NSError(domain: "ElevenLabs", code: statusCode,
-                         userInfo: [NSLocalizedDescriptionKey: "ElevenLabs API error \(statusCode): \(errorBody)"])
+            "voice_settings": ["stability": 0.5, "similarity_boost": 0.75],
+        ])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            // Fehlertext des Anbieters nur ins Log, nicht in die UI
+            print("[Sprache] ElevenLabs-Fehler: \(String(data: data, encoding: .utf8) ?? "-")")
+            throw URLError(.badServerResponse)
         }
-
         return data
     }
 }
 
-// MARK: - Audio Player for MP3 data
+// MARK: - MP3-Wiedergabe
 
-class AudioDataPlayer: NSObject, AVAudioPlayerDelegate {
+@MainActor
+final class AudioDataPlayer: NSObject, AVAudioPlayerDelegate {
     static let shared = AudioDataPlayer()
     private var player: AVAudioPlayer?
     private var completion: (() -> Void)?
 
+    /// Spielt in der bestehenden Voice-Chat-Session ab – kein Umschalten auf `.playback`
+    /// (das hat bei der Brille die Bluetooth-Route zerlegt).
     func play(data: Data, completion: @escaping () -> Void) {
-        self.completion = completion
-
+        stop()
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true)
-
-            player = try AVAudioPlayer(data: data)
-            player?.delegate = self
-            player?.play()
+            try AudioSessionManager.shared.configureForVoiceChat()
+            let player = try AVAudioPlayer(data: data)
+            player.delegate = self
+            self.player = player
+            self.completion = completion
+            if !player.play() { finish() }
         } catch {
-            print("[AudioPlayer] Error: \(error)")
+            print("[Audio] Wiedergabe fehlgeschlagen: \(error)")
             completion()
         }
     }
 
+    /// Bricht ab, ohne die Fertig-Rückmeldung auszulösen (sonst startete das Zuhören doppelt).
     func stop() {
+        completion = nil
         player?.stop()
         player = nil
-        completion?()
-        completion = nil
     }
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in
-            self.completion?()
-            self.completion = nil
-        }
+    private func finish() {
+        let done = completion
+        completion = nil
+        player = nil
+        done?()
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in self.finish() }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor in self.finish() }
     }
 }
 
-// MARK: - Speech Manager
+// MARK: - Spracheingabe und -ausgabe
 
 @MainActor
-class SpeechManager: NSObject, ObservableObject {
-    // STT state
-    @Published var transcribedText: String = ""
-    @Published var isListening: Bool = false
-    @Published var isSpeaking: Bool = false
+final class SpeechManager: NSObject, ObservableObject {
+    @Published private(set) var transcribedText: String = ""
+    @Published private(set) var isListening: Bool = false
+    @Published private(set) var isSpeaking: Bool = false
 
-    // STT
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    /// Erkannter Satz nach einer Sprechpause
+    var onSpeechPause: ((String) -> Void)?
+    /// Sprachausgabe natürlich beendet (nicht bei Abbruch)
+    var onSpeechFinished: (() -> Void)?
+    /// Zuhören wurde vom System beendet (Fehler, Zeitlimit)
+    var onListeningStopped: ((String?) -> Void)?
+
+    private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    private var languageCode: String = ClaudeConfig.defaultLanguage
 
-    // TTS — ElevenLabs (direct REST, no package)
     private var elevenLabsClient: ElevenLabsTTSClient?
-    private var elevenLabsVoiceId: String = "21m00Tcm4TlvDq8ikWAM" // Rachel default
-
-    // Fallback TTS — Apple (if no ElevenLabs key)
+    private var elevenLabsVoiceId: String = ElevenLabsVoice.allVoices[0].id
     private let appleSynthesizer = AVSpeechSynthesizer()
 
-    // Pause detection
     private var silenceTimer: Timer?
     private var pauseThreshold: TimeInterval = 1.5
-    var onSpeechPause: ((String) -> Void)?
-    var onSpeechFinished: (() -> Void)?
+    private var pauseHandled = false
 
     override init() {
         super.init()
         appleSynthesizer.delegate = self
+        setLanguage(languageCode)
     }
 
-    // MARK: - Configuration
+    // MARK: Einstellungen
 
-    func configureElevenLabs(apiKey: String, voiceId: String? = nil) {
-        if !apiKey.isEmpty {
-            elevenLabsClient = ElevenLabsTTSClient(apiKey: apiKey)
-            if let voiceId { elevenLabsVoiceId = voiceId }
-            let voice = ElevenLabsVoice.voice(for: elevenLabsVoiceId)
-            print("[Speech] ElevenLabs TTS configured (voice: \(voice.name))")
-        } else {
-            elevenLabsClient = nil
-            print("[Speech] No ElevenLabs key — using Apple TTS fallback")
-        }
+    /// Sprache für Erkennung und Stimme (früher fest auf Englisch – Deutsch wurde nicht verstanden).
+    func setLanguage(_ code: String) {
+        languageCode = code
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: code))
     }
 
-    func setVoice(_ voiceId: String) {
+    func configureElevenLabs(apiKey: String, voiceId: String) {
+        elevenLabsClient = apiKey.isEmpty ? nil : ElevenLabsTTSClient(apiKey: apiKey)
         elevenLabsVoiceId = voiceId
-        let voice = ElevenLabsVoice.voice(for: voiceId)
-        print("[Speech] Voice changed to: \(voice.name)")
     }
 
-    // MARK: - Authorization
+    func setPauseThreshold(_ threshold: TimeInterval) {
+        pauseThreshold = threshold
+    }
 
     func requestAuthorization() async -> Bool {
-        let status = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status)
-            }
+        let speech = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
-        return status == .authorized
+        let mic = await AVAudioApplication.requestRecordPermission()
+        return speech == .authorized && mic
     }
 
-    // MARK: - STT (Apple Speech — on-device)
+    // MARK: Zuhören (Apple-Spracherkennung, wenn möglich auf dem Gerät)
 
     func startListening() throws {
-        // Stop any current speech first, then wait for audio session to settle
-        if isSpeaking {
-            stopSpeaking()
-            // Give audio session time to transition before reconfiguring
-            Thread.sleep(forTimeInterval: 0.15)
-        }
+        if isSpeaking { stopSpeaking() }
         stopListening()
 
-        // Reconfigure audio session for recording
-        try? AudioSessionManager.shared.configureForVoiceChat()
-
-        // Reset audio engine to pick up current route (iPhone mic vs Bluetooth)
-        audioEngine.reset()
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            throw SpeechError.recognizerUnavailable(languageCode)
+        }
+        try AudioSessionManager.shared.configureForVoiceChat()
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.addsPunctuation = true
-
-        if speechRecognizer?.supportsOnDeviceRecognition == true {
-            request.requiresOnDeviceRecognition = true
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true // Datenschutz: Sprache verlässt das iPhone nicht
         }
-
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
-        // Use the node's ACTUAL output format — this adapts to whatever
-        // audio route is active (iPhone mic = 48kHz, Bluetooth HFP = 16kHz)
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        // Guard against zero-channel format (happens during route transitions)
-        guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
-            throw NSError(domain: "SpeechManager", code: -1,
-                         userInfo: [NSLocalizedDescriptionKey: "Audio input not ready — try again"])
+        // Tatsächliches Format der aktiven Route (iPhone 48 kHz, Brille/HFP 8–16 kHz)
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            throw SpeechError.inputNotReady
         }
-
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak request] buffer, _ in
+            request?.append(buffer)
         }
-
         audioEngine.prepare()
         try audioEngine.start()
 
-        recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
-            Task { @MainActor in
-                guard let self else { return }
-                if let result {
-                    self.transcribedText = result.bestTranscription.formattedString
+        pauseHandled = false
+        transcribedText = ""
+        isListening = true
+
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            let text = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal ?? false
+            let failed = error != nil
+            Task { @MainActor [weak self] in
+                guard let self, self.isListening else { return }
+                if let text {
+                    self.transcribedText = text
                     self.resetSilenceTimer()
-                    if result.isFinal { self.handleFinalResult() }
+                    if isFinal { self.handlePause() }
                 }
-                if error != nil { self.stopListening() }
+                if failed && !self.pauseHandled {
+                    self.stopListening()
+                    self.onListeningStopped?(self.transcribedText.isEmpty ? nil : self.transcribedText)
+                }
             }
         }
-
-        isListening = true
-        transcribedText = ""
     }
 
     func stopListening() {
         silenceTimer?.invalidate()
         silenceTimer = nil
-        audioEngine.stop()
+        if audioEngine.isRunning { audioEngine.stop() }
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
         recognitionRequest = nil
@@ -259,123 +232,106 @@ class SpeechManager: NSObject, ObservableObject {
     private func resetSilenceTimer() {
         silenceTimer?.invalidate()
         silenceTimer = Timer.scheduledTimer(withTimeInterval: pauseThreshold, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.handleSpeechPause() }
+            Task { @MainActor in self?.handlePause() }
         }
     }
 
-    private func handleSpeechPause() {
+    /// Pause oder Endergebnis – wird pro Äußerung nur EINMAL weitergegeben (früher teils doppelt).
+    private func handlePause() {
+        guard !pauseHandled else { return }
         let text = transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        pauseHandled = true
         stopListening()
+        transcribedText = ""
         onSpeechPause?(text)
     }
 
-    private func handleFinalResult() {
-        let text = transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        stopListening()
-        onSpeechPause?(text)
-    }
+    // MARK: Sprechen
 
-    // MARK: - TTS
-
+    /// Lokale Sprachausgabe: ElevenLabs (falls Key) sonst kostenlose iPhone-Stimme.
     func speak(_ text: String) {
+        stopSpeaking()
         isSpeaking = true
-
         if let client = elevenLabsClient {
-            speakWithElevenLabs(client, text: text)
+            Task {
+                do {
+                    let audio = try await client.synthesize(text: text, voiceId: elevenLabsVoiceId)
+                    guard isSpeaking else { return }
+                    AudioDataPlayer.shared.play(data: audio) { [weak self] in self?.finishSpeaking() }
+                } catch {
+                    guard isSpeaking else { return }
+                    speakWithApple(text)
+                }
+            }
         } else {
             speakWithApple(text)
         }
     }
 
-    func stopSpeaking() {
-        AudioDataPlayer.shared.stop()
-        appleSynthesizer.stopSpeaking(at: .immediate)
-        isSpeaking = false
-    }
-
-    /// Play TTS audio from a remote URL (used in channel mode where server generates TTS)
-    func playRemoteAudio(url: URL, completion: @escaping () -> Void) {
+    /// Vom PC erzeugtes Audio abspielen (Channel-Modus, mit Token-Header).
+    func playRemoteAudio(request: URLRequest, fallbackText: String) {
+        stopSpeaking()
         isSpeaking = true
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                    print("[Speech] Remote audio fetch failed")
-                    await MainActor.run { self.isSpeaking = false }
-                    completion()
-                    return
-                }
-                print("[Speech] Playing remote audio: \(data.count) bytes from \(url.lastPathComponent)")
-                AudioDataPlayer.shared.play(data: data) { [weak self] in
-                    Task { @MainActor in
-                        self?.isSpeaking = false
-                        print("[Speech] Remote audio playback finished")
-                    }
-                    completion()
-                }
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+                guard isSpeaking else { return }
+                AudioDataPlayer.shared.play(data: data) { [weak self] in self?.finishSpeaking() }
             } catch {
-                print("[Speech] Remote audio error: \(error)")
-                await MainActor.run { self.isSpeaking = false }
-                completion()
+                print("[Sprache] Audio vom PC nicht abspielbar (\(error.localizedDescription)) – iPhone-Stimme")
+                guard isSpeaking else { return }
+                speakWithApple(fallbackText)
             }
         }
     }
 
-    private func speakWithElevenLabs(_ client: ElevenLabsTTSClient, text: String) {
-        Task {
-            do {
-                let voiceName = ElevenLabsVoice.voice(for: elevenLabsVoiceId).name
-                print("[Speech] ElevenLabs: synthesizing (voice: \(voiceName))...")
-                let audioData = try await client.synthesize(text: text, voiceId: elevenLabsVoiceId)
-                print("[Speech] ElevenLabs: received \(audioData.count) bytes, playing...")
+    func stopSpeaking() {
+        AudioDataPlayer.shared.stop()
+        if appleSynthesizer.isSpeaking { appleSynthesizer.stopSpeaking(at: .immediate) }
+        isSpeaking = false
+    }
 
-                AudioDataPlayer.shared.play(data: audioData) { [weak self] in
-                    Task { @MainActor in
-                        self?.isSpeaking = false
-                        self?.onSpeechFinished?()
-                        print("[Speech] ElevenLabs playback finished")
-                    }
-                }
-            } catch {
-                print("[Speech] ElevenLabs error: \(error.localizedDescription)")
-                print("[Speech] Falling back to Apple TTS...")
-                speakWithApple(text)
-            }
-        }
+    private func finishSpeaking() {
+        guard isSpeaking else { return }
+        isSpeaking = false
+        onSpeechFinished?()
     }
 
     private func speakWithApple(_ text: String) {
+        try? AudioSessionManager.shared.configureForVoiceChat()
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.voice = Self.bestVoice(for: languageCode)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-
-        if let premiumVoice = AVSpeechSynthesisVoice.speechVoices().first(where: {
-            $0.language == "en-US" && $0.quality == .enhanced
-        }) {
-            utterance.voice = premiumVoice
-        }
-
         appleSynthesizer.speak(utterance)
     }
 
-    func setPauseThreshold(_ threshold: TimeInterval) {
-        pauseThreshold = threshold
+    /// Beste installierte Stimme der Sprache (Premium > Erweitert > Standard)
+    private static func bestVoice(for code: String) -> AVSpeechSynthesisVoice? {
+        let voices = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == code }
+        return voices.first { $0.quality == .premium }
+            ?? voices.first { $0.quality == .enhanced }
+            ?? AVSpeechSynthesisVoice(language: code)
     }
 }
 
-// MARK: - AVSpeechSynthesizerDelegate (Apple TTS fallback)
-
 extension SpeechManager: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in
-            self.isSpeaking = false
-            self.onSpeechFinished?()
-        }
+        Task { @MainActor in self.finishSpeaking() }
     }
+}
 
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.isSpeaking = false }
+enum SpeechError: LocalizedError {
+    case recognizerUnavailable(String)
+    case inputNotReady
+
+    var errorDescription: String? {
+        switch self {
+        case .recognizerUnavailable(let code):
+            return "Spracherkennung für \(code) nicht verfügbar – Sprache in den Einstellungen prüfen"
+        case .inputNotReady:
+            return "Mikrofon noch nicht bereit – bitte nochmal tippen"
+        }
     }
 }

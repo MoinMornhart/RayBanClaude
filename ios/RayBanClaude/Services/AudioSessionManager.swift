@@ -1,84 +1,60 @@
 import Foundation
 import AVFoundation
 
-class AudioSessionManager {
+/// Verwaltet die Audio-Session für Sprechen und Zuhören.
+///
+/// Wichtig für Ray-Ban Meta Gen 2: Die Session wird nur EINMAL auf
+/// `.playAndRecord` + Bluetooth-HFP konfiguriert und danach nicht mehr ständig
+/// umgeschaltet – Meta rät davon ab, die AVAudioSession bei offener Brillen-Sitzung
+/// neu zu konfigurieren (führt sonst zu „Device unavailable“).
+final class AudioSessionManager {
     static let shared = AudioSessionManager()
+
+    private let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP, .allowBluetoothA2DP]
 
     private init() {
         setupNotifications()
     }
 
-    /// Configure for voice chat with Bluetooth mic support (Meta Ray-Ban glasses)
+    /// Sprach-Chat mit Bluetooth-Mikrofon (Brille). Idempotent: ändert nichts, wenn schon passend.
     func configureForVoiceChat() throws {
         let session = AVAudioSession.sharedInstance()
-
-        // .allowBluetooth = HFP (Hands-Free Profile) — enables Bluetooth MIC INPUT
-        // .allowBluetoothA2DP = A2DP — high-quality Bluetooth OUTPUT only
-        // .defaultToSpeaker = fallback to speaker when no Bluetooth connected
-        // We need BOTH for glasses: mic input (HFP) + audio output (A2DP)
-        try session.setCategory(
-            .playAndRecord,
-            mode: .voiceChat,
-            options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
-        )
+        let alreadyConfigured = session.category == .playAndRecord
+            && session.mode == .voiceChat
+            && session.categoryOptions.isSuperset(of: options)
+        if !alreadyConfigured {
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
+        }
         try session.setActive(true)
-
-        // If Ray-Ban glasses are connected via Bluetooth, prefer their mic
         routeToBluetoothMicIfAvailable()
     }
 
-    /// Route audio input to Bluetooth mic (glasses) if available
+    /// Bevorzugt das Mikrofon der Brille (HFP), falls verbunden.
     func routeToBluetoothMicIfAvailable() {
         let session = AVAudioSession.sharedInstance()
-        guard let availableInputs = session.availableInputs else {
-            print("[Audio] No available inputs found")
+        guard let inputs = session.availableInputs else { return }
+
+        if session.currentRoute.inputs.contains(where: { $0.portType == .bluetoothHFP }) {
+            return // schon auf der Brille – nicht unnötig umschalten
+        }
+        let preferred = inputs.first { $0.portType == .bluetoothHFP }
+            ?? inputs.first { $0.portType == .bluetoothLE }
+            ?? inputs.first { $0.portName.localizedCaseInsensitiveContains("ray-ban") || $0.portName.localizedCaseInsensitiveContains("meta") }
+
+        guard let input = preferred else {
+            print("[Audio] Kein Bluetooth-Mikrofon gefunden – nutze iPhone-Mikrofon")
             return
         }
-
-        // Log all available inputs for debugging
-        for input in availableInputs {
-            print("[Audio] Available input: \(input.portName) type=\(input.portType.rawValue) uid=\(input.uid)")
+        do {
+            try session.setPreferredInput(input)
+            print("[Audio] Mikrofon: \(input.portName)")
+        } catch {
+            print("[Audio] Umschalten auf \(input.portName) fehlgeschlagen: \(error)")
         }
+    }
 
-        // Log current route
-        let currentRoute = session.currentRoute
-        for input in currentRoute.inputs {
-            print("[Audio] Current input route: \(input.portName) type=\(input.portType.rawValue)")
-        }
-        for output in currentRoute.outputs {
-            print("[Audio] Current output route: \(output.portName) type=\(output.portType.rawValue)")
-        }
-
-        // Priority order: HFP first (best for mic), then any Bluetooth input
-        let bluetoothTypes: [AVAudioSession.Port] = [.bluetoothHFP, .bluetoothA2DP, .bluetoothLE]
-        for btType in bluetoothTypes {
-            for input in availableInputs {
-                if input.portType == btType {
-                    do {
-                        try session.setPreferredInput(input)
-                        print("[Audio] ✅ Routed mic to Bluetooth: \(input.portName) (\(btType.rawValue))")
-                        return
-                    } catch {
-                        print("[Audio] Failed to route to \(input.portName): \(error)")
-                    }
-                }
-            }
-        }
-
-        // Also check for Ray-Ban by name as fallback
-        for input in availableInputs {
-            if input.portName.lowercased().contains("ray-ban") || input.portName.lowercased().contains("meta") {
-                do {
-                    try session.setPreferredInput(input)
-                    print("[Audio] ✅ Routed mic to glasses by name: \(input.portName)")
-                    return
-                } catch {
-                    print("[Audio] Failed to route to \(input.portName): \(error)")
-                }
-            }
-        }
-
-        print("[Audio] No Bluetooth mic found — using iPhone mic")
+    var isBluetoothInputActive: Bool {
+        AVAudioSession.sharedInstance().currentRoute.inputs.contains { $0.portType == .bluetoothHFP || $0.portType == .bluetoothLE }
     }
 
     func deactivate() {
@@ -87,57 +63,34 @@ class AudioSessionManager {
 
     private func setupNotifications() {
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInterruption),
-            name: AVAudioSession.interruptionNotification,
-            object: nil
+            self, selector: #selector(handleInterruption),
+            name: AVAudioSession.interruptionNotification, object: nil
         )
-
-        // Monitor audio route changes (glasses connect/disconnect)
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRouteChange),
-            name: AVAudioSession.routeChangeNotification,
-            object: nil
+            self, selector: #selector(handleRouteChange),
+            name: AVAudioSession.routeChangeNotification, object: nil
         )
     }
 
     @objc private func handleRouteChange(notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
-            return
-        }
-
-        switch reason {
-        case .newDeviceAvailable:
-            // New Bluetooth device connected — try to route mic to it
-            print("[Audio] New audio device connected")
+        guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
+        if reason == .newDeviceAvailable {
             routeToBluetoothMicIfAvailable()
-        case .oldDeviceUnavailable:
-            print("[Audio] Audio device disconnected — falling back to iPhone mic")
-        default:
-            break
         }
     }
 
     @objc private func handleInterruption(notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
-            return
-        }
-
+        guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
         switch type {
         case .began:
             NotificationCenter.default.post(name: .audioInterruptionBegan, object: nil)
         case .ended:
-            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
-                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-                if options.contains(.shouldResume) {
-                    try? configureForVoiceChat()
-                    NotificationCenter.default.post(name: .audioInterruptionEnded, object: nil)
-                }
+            let optionsRaw = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            if AVAudioSession.InterruptionOptions(rawValue: optionsRaw).contains(.shouldResume) {
+                try? configureForVoiceChat()
+                NotificationCenter.default.post(name: .audioInterruptionEnded, object: nil)
             }
         @unknown default:
             break

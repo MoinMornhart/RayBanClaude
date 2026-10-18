@@ -1,8 +1,10 @@
 import Foundation
 
+// MARK: - Gateway-Modus (REST)
+
 struct ChatRequest: Encodable {
     let text: String
-    let images: [String] // base64 JPEG strings
+    let images: [String] // Base64-JPEGs
     let conversation_id: String?
 }
 
@@ -19,13 +21,10 @@ struct ToolCallResult: Decodable {
 
 struct HealthResponse: Decodable {
     let status: String
-    let uptime: Double?       // gateway mode
-    let mode: String?         // channel mode
-    let clients: Int?         // channel mode
-    let tts: Bool?            // channel mode
+    let mode: String?
 }
 
-// Wrapper for decoding arbitrary JSON values
+/// Hülle zum Dekodieren beliebiger JSON-Werte
 struct AnyCodable: Decodable {
     let value: Any
 
@@ -43,30 +42,58 @@ struct AnyCodable: Decodable {
             value = double
         } else if let bool = try? container.decode(Bool.self) {
             value = bool
-        } else if container.decodeNil() {
-            value = NSNull()
         } else {
             value = NSNull()
         }
     }
 }
 
-struct TranscriptMessage: Identifiable {
-    let id = UUID()
+// MARK: - Channel-Modus (WebSocket)
+
+struct Attachment: Identifiable, Equatable {
+    let name: String
+    let path: String
+    var id: String { path }
+
+    var isImage: Bool {
+        ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains((path as NSString).pathExtension.lowercased())
+    }
+}
+
+/// Freigabe-Anfrage von Claude Code (Permission-Relay)
+struct PermissionRequest: Identifiable, Equatable {
+    let id: String
+    let toolName: String
+    let description: String
+    let inputPreview: String
+}
+
+// MARK: - Transkript
+
+struct TranscriptMessage: Identifiable, Equatable {
+    /// Server-ID bei Claude-Antworten (für edit_message), sonst eine lokale UUID
+    let id: String
     let role: Role
-    let text: String
+    var text: String
     let timestamp: Date
-    let toolCalls: [ToolCallResult]
+    let toolCalls: [String]
+    let attachments: [Attachment]
+    var delivered: Bool
 
     enum Role {
         case user
         case assistant
+        case system
     }
 
-    init(role: Role, text: String, toolCalls: [ToolCallResult] = []) {
+    init(id: String = UUID().uuidString, role: Role, text: String, toolCalls: [String] = [],
+         attachments: [Attachment] = [], delivered: Bool = true) {
+        self.id = id
         self.role = role
         self.text = text
         self.timestamp = Date()
         self.toolCalls = toolCalls
+        self.attachments = attachments
+        self.delivered = delivered
     }
 }

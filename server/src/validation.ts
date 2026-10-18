@@ -71,7 +71,7 @@ function validateImage(raw: unknown, index: number): ValidationResult<ValidatedI
     return invalid(`${label}: Base64-String erwartet.`);
   }
   if (raw.length > MAX_IMAGE_BASE64_LENGTH) {
-    return invalid(`${label} ist zu groß (max. ca. 8 MB).`);
+    return invalid(`${label} ist zu groß (max. 5 MB).`);
   }
   if (raw.length % BASE64_BLOCK_SIZE || !BASE64_PATTERN.test(raw)) {
     return invalid(`${label}: ungültige Base64-Kodierung.`);

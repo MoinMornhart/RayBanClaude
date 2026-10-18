@@ -1,8 +1,10 @@
 import Foundation
 import AVFoundation
+import CoreImage
+import ImageIO
 import UIKit
 
-// MARK: - Detected Code Model
+// MARK: - Erkannter QR-/Barcode
 
 struct DetectedCode: Equatable {
     let type: String
@@ -12,224 +14,222 @@ struct DetectedCode: Equatable {
     static func == (lhs: DetectedCode, rhs: DetectedCode) -> Bool {
         lhs.type == rhs.type && lhs.value == rhs.value
     }
+
+    /// Lesbarer Name des Codetyps
+    var typeLabel: String {
+        type.replacingOccurrences(of: "org.iso.", with: "")
+            .replacingOccurrences(of: "org.gs1.", with: "")
+            .uppercased()
+    }
 }
 
-// MARK: - Camera Manager
+// MARK: - iPhone-Kamera
 
-class CameraManager: NSObject, ObservableObject, FrameSource {
-    @Published var latestFrame: Data?
-    @Published var latestImage: UIImage?
+@MainActor
+final class CameraManager: NSObject, ObservableObject, FrameSource {
+    @Published private(set) var latestFrame: Data?
     @Published private(set) var isRunning: Bool = false
     @Published private(set) var connectionStatus: FrameSourceStatus = .disconnected
-    @Published var frameCount: Int = 0
+    @Published private(set) var frameCount: Int = 0
     @Published var lastDetectedCode: DetectedCode?
 
     let sourceType: FrameSourceType = .iPhone
+    nonisolated let captureSession = AVCaptureSession()
 
-    let captureSession = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
     private let metadataOutput = AVCaptureMetadataOutput()
-    private let processingQueue = DispatchQueue(label: "camera.processing")
-    private let metadataQueue = DispatchQueue(label: "camera.metadata")
-    private var lastCaptureTime: Date = .distantPast
-    private var frameInterval: TimeInterval = 1.0
-    private var jpegQuality: CGFloat = 0.5
+    /// Alle Session-Änderungen laufen auf dieser Queue (Apple-Empfehlung, blockiert nicht die UI)
+    private nonisolated let sessionQueue = DispatchQueue(label: "camera.session")
+    private nonisolated let processor = FrameProcessor()
     private var isConfigured = false
 
-    // QR/Barcode debounce
     private var lastCodeValue: String?
     private var lastCodeTime: Date = .distantPast
     private let codeDebounceInterval: TimeInterval = 3.0
 
-    // Supported barcode types
     private let supportedCodeTypes: [AVMetadataObject.ObjectType] = [
-        .qr,
-        .ean13,
-        .ean8,
-        .code128,
-        .code39,
-        .upce,
-        .pdf417,
-        .aztec,
-        .dataMatrix
+        .qr, .ean13, .ean8, .code128, .code39, .upce, .pdf417, .aztec, .dataMatrix,
     ]
 
-    func configure(frameInterval: TimeInterval = 1.0, jpegQuality: CGFloat = 0.5) {
-        self.frameInterval = frameInterval
-        self.jpegQuality = jpegQuality
+    func configure(frameInterval: TimeInterval = 1.0, jpegQuality: CGFloat = 0.85) {
+        processor.update(frameInterval: frameInterval, jpegQuality: jpegQuality)
     }
 
     func start() throws {
-        guard !isRunning else { return }
-
         if !isConfigured {
-            captureSession.beginConfiguration()
-            // Use 1080p for sharp preview
-            captureSession.sessionPreset = .hd1920x1080
-
-            // Clear any existing inputs/outputs
-            for input in captureSession.inputs {
-                captureSession.removeInput(input)
-            }
-            for output in captureSession.outputs {
-                captureSession.removeOutput(output)
-            }
-
-            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-                  let input = try? AVCaptureDeviceInput(device: camera) else {
-                captureSession.commitConfiguration()
-                throw CameraError.noCameraAvailable
-            }
-
-            // Set 30fps on the camera device
-            do {
-                try camera.lockForConfiguration()
-                camera.activeVideoMinFrameDuration = CMTimeMake(value: 1, timescale: 30)
-                camera.activeVideoMaxFrameDuration = CMTimeMake(value: 1, timescale: 30)
-                // Enable auto-focus for clarity
-                if camera.isFocusModeSupported(.continuousAutoFocus) {
-                    camera.focusMode = .continuousAutoFocus
-                }
-                // Enable auto-exposure
-                if camera.isExposureModeSupported(.continuousAutoExposure) {
-                    camera.exposureMode = .continuousAutoExposure
-                }
-                camera.unlockForConfiguration()
-            } catch {
-                print("[Camera] Could not configure device: \(error)")
-            }
-
-            if captureSession.canAddInput(input) {
-                captureSession.addInput(input)
-            }
-
-            // Video output for frame capture
-            videoOutput.setSampleBufferDelegate(self, queue: processingQueue)
-            videoOutput.alwaysDiscardsLateVideoFrames = true
-            // Request high-quality pixel format
-            videoOutput.videoSettings = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-            ]
-
-            if captureSession.canAddOutput(videoOutput) {
-                captureSession.addOutput(videoOutput)
-            }
-
-            // Metadata output for QR/barcode detection
-            if captureSession.canAddOutput(metadataOutput) {
-                captureSession.addOutput(metadataOutput)
-                metadataOutput.setMetadataObjectsDelegate(self, queue: metadataQueue)
-                // Only set types that the output actually supports
-                let available = metadataOutput.availableMetadataObjectTypes
-                let desired = supportedCodeTypes.filter { available.contains($0) }
-                metadataOutput.metadataObjectTypes = desired
-                print("[Camera] QR/Barcode detection enabled for: \(desired.map { $0.rawValue })")
-            }
-
-            captureSession.commitConfiguration()
+            try configureSession()
             isConfigured = true
         }
-
         connectionStatus = .connecting
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.captureSession.startRunning()
-            DispatchQueue.main.async {
-                self?.isRunning = true
-                self?.connectionStatus = .connected
-                print("[Camera] Started — capturing frames every \(self?.frameInterval ?? 1)s")
+        sessionQueue.async { [captureSession] in
+            if !captureSession.isRunning { captureSession.startRunning() }
+            let running = captureSession.isRunning
+            Task { @MainActor [weak self] in
+                self?.isRunning = running
+                self?.connectionStatus = running ? .connected : .error("Kamera konnte nicht starten")
             }
         }
     }
 
+    /// Stoppt immer – auch wenn der Start noch läuft (früher wurde ein laufender Start übersehen).
     func stop() {
-        guard isRunning else { return }
-        captureSession.stopRunning()
+        sessionQueue.async { [captureSession] in
+            if captureSession.isRunning { captureSession.stopRunning() }
+        }
         isRunning = false
         connectionStatus = .disconnected
     }
 
     func consumeFrame() -> Data? {
-        // Return latest frame but DON'T nil it — keep it available
-        // until a new frame replaces it
-        let frame = latestFrame
-        if frame != nil {
-            print("[Camera] Consuming frame (\(frame!.count) bytes)")
-        } else {
-            print("[Camera] No frame available to consume")
-        }
-        return frame
+        latestFrame
     }
-}
 
-// MARK: - Video Frame Capture
+    func capturePhoto() async -> Data? {
+        guard isRunning else { return latestFrame }
+        return await processor.nextFrame(quality: 0.92) ?? latestFrame
+    }
 
-extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    // MARK: - Einrichtung
+
+    private func configureSession() throws {
+        captureSession.beginConfiguration()
+        defer { captureSession.commitConfiguration() }
+        captureSession.sessionPreset = .hd1920x1080
+
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+              let input = try? AVCaptureDeviceInput(device: camera),
+              captureSession.canAddInput(input) else {
+            throw CameraError.noCameraAvailable
+        }
+        captureSession.addInput(input)
+
+        do {
+            try camera.lockForConfiguration()
+            camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+            camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+            if camera.isFocusModeSupported(.continuousAutoFocus) { camera.focusMode = .continuousAutoFocus }
+            if camera.isExposureModeSupported(.continuousAutoExposure) { camera.exposureMode = .continuousAutoExposure }
+            camera.unlockForConfiguration()
+        } catch {
+            print("[Kamera] Gerät nicht konfigurierbar: \(error)")
+        }
+
+        videoOutput.alwaysDiscardsLateVideoFrames = true
+        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        processor.onFrame = { [weak self] jpeg in
+            Task { @MainActor [weak self] in
+                self?.latestFrame = jpeg
+                self?.frameCount += 1
+            }
+        }
+        videoOutput.setSampleBufferDelegate(processor, queue: processor.queue)
+        if captureSession.canAddOutput(videoOutput) {
+            captureSession.addOutput(videoOutput)
+        }
+        // Hochformat: ohne diese Drehung kamen die Bilder bei Claude um 90° gedreht an
+        if let connection = videoOutput.connection(with: .video), connection.isVideoRotationAngleSupported(90) {
+            connection.videoRotationAngle = 90
+        }
+
+        if captureSession.canAddOutput(metadataOutput) {
+            captureSession.addOutput(metadataOutput)
+            metadataOutput.setMetadataObjectsDelegate(self, queue: .main)
+            metadataOutput.metadataObjectTypes = supportedCodeTypes.filter {
+                metadataOutput.availableMetadataObjectTypes.contains($0)
+            }
+        }
+    }
+
+    fileprivate func handle(code value: String, type: String) {
         let now = Date()
-        guard now.timeIntervalSince(lastCaptureTime) >= frameInterval else { return }
-        lastCaptureTime = now
-
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-
-        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
-
-        let uiImage = UIImage(cgImage: cgImage)
-        guard let jpegData = uiImage.jpegData(compressionQuality: jpegQuality) else { return }
-
-        DispatchQueue.main.async { [weak self] in
-            self?.latestFrame = jpegData
-            self?.latestImage = uiImage
-            self?.frameCount += 1
-        }
+        if value == lastCodeValue && now.timeIntervalSince(lastCodeTime) < codeDebounceInterval { return }
+        lastCodeValue = value
+        lastCodeTime = now
+        lastDetectedCode = DetectedCode(type: type, value: value, timestamp: now)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 }
 
-// MARK: - QR/Barcode Metadata Detection
+// MARK: - QR-/Barcode-Erkennung
 
 extension CameraManager: AVCaptureMetadataOutputObjectsDelegate {
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        guard let metadataObject = metadataObjects.first,
-              let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
-              let stringValue = readableObject.stringValue else { return }
-
-        let now = Date()
-        let codeType = readableObject.type.rawValue
-
-        // Debounce: skip if same code detected within the debounce window
-        if stringValue == lastCodeValue && now.timeIntervalSince(lastCodeTime) < codeDebounceInterval {
-            return
-        }
-
-        lastCodeValue = stringValue
-        lastCodeTime = now
-
-        let detected = DetectedCode(
-            type: codeType,
-            value: stringValue,
-            timestamp: now
-        )
-
-        print("[Camera] Detected \(codeType): \(stringValue.prefix(100))")
-
-        DispatchQueue.main.async { [weak self] in
-            self?.lastDetectedCode = detected
-            // Haptic feedback on detection
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard let code = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+              let value = code.stringValue else { return }
+        let type = code.type.rawValue
+        MainActor.assumeIsolated {
+            handle(code: value, type: type)
         }
     }
 }
 
-// MARK: - Camera Error
+// MARK: - Bildverarbeitung (läuft auf eigener Queue, nicht auf dem Main-Thread)
+
+/// Wandelt Kamerabilder gedrosselt in JPEG um. Ein CIContext wird wiederverwendet
+/// (früher wurde pro Bild ein neuer erzeugt – teuer).
+final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+    let queue = DispatchQueue(label: "camera.frames")
+    var onFrame: ((Data) -> Void)?
+
+    private let context = CIContext()
+    private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    private let lock = NSLock()
+    private var frameInterval: TimeInterval = 1.0
+    private var jpegQuality: CGFloat = 0.85
+    private var lastCapture: Date = .distantPast
+    private var waiter: (quality: CGFloat, continuation: CheckedContinuation<Data?, Never>)?
+
+    func update(frameInterval: TimeInterval, jpegQuality: CGFloat) {
+        lock.lock(); defer { lock.unlock() }
+        self.frameInterval = frameInterval
+        self.jpegQuality = jpegQuality
+    }
+
+    /// Liefert das nächste Kamerabild in hoher Qualität (max. 2 s warten).
+    func nextFrame(quality: CGFloat) async -> Data? {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            waiter?.continuation.resume(returning: nil)
+            waiter = (quality, continuation)
+            lock.unlock()
+            queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.finishWaiter(with: nil)
+            }
+        }
+    }
+
+    private func finishWaiter(with data: Data?) {
+        lock.lock()
+        let pending = waiter
+        waiter = nil
+        lock.unlock()
+        pending?.continuation.resume(returning: data)
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        lock.lock()
+        let now = Date()
+        let pendingQuality = waiter?.quality
+        let due = now.timeIntervalSince(lastCapture) >= frameInterval
+        let quality = pendingQuality ?? jpegQuality
+        if due || pendingQuality != nil { lastCapture = now }
+        lock.unlock()
+        guard due || pendingQuality != nil, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        let image = CIImage(cvPixelBuffer: buffer)
+        let options = [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): quality]
+        guard let jpeg = context.jpegRepresentation(of: image, colorSpace: colorSpace, options: options) else { return }
+        if pendingQuality != nil { finishWaiter(with: jpeg) }
+        onFrame?(jpeg)
+    }
+}
 
 enum CameraError: LocalizedError {
     case noCameraAvailable
 
     var errorDescription: String? {
         switch self {
-        case .noCameraAvailable:
-            return "No camera available on this device"
+        case .noCameraAvailable: return "Keine Kamera verfügbar"
         }
     }
 }

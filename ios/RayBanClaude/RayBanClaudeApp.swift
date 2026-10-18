@@ -3,37 +3,24 @@ import MWDATCore
 
 @main
 struct RayBanClaudeApp: App {
+    @StateObject private var viewModel: SessionViewModel
+
     init() {
+        // Das DAT SDK muss vor jedem Zugriff auf Wearables.shared konfiguriert sein
         do {
             try Wearables.configure()
-            print("[App] DAT SDK configured")
         } catch {
-            print("[App] DAT SDK configuration failed: \(error)")
+            print("[App] Meta-SDK konnte nicht konfiguriert werden: \(error)")
         }
+        _viewModel = StateObject(wrappedValue: SessionViewModel())
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(viewModel: viewModel)
                 .preferredColorScheme(.dark)
-                .onOpenURL { url in
-                    // Handle Meta AI callback after registration/permission
-                    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                          components.queryItems?.contains(where: { $0.name == "metaWearablesAction" }) == true
-                    else {
-                        return // Not a DAT SDK callback
-                    }
-
-                    print("[App] Received DAT SDK callback: \(url)")
-                    Task {
-                        do {
-                            _ = try await Wearables.shared.handleUrl(url)
-                            print("[App] DAT SDK URL handled successfully")
-                        } catch {
-                            print("[App] DAT SDK URL error: \(error)")
-                        }
-                    }
-                }
+                // Kopplungs-QR-Code (raybanclaude://pair?…) und Rückrufe der Meta-AI-App
+                .onOpenURL { url in viewModel.handleIncomingURL(url) }
         }
     }
 }

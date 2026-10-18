@@ -1,212 +1,140 @@
 import SwiftUI
 import AVFoundation
 
-// MARK: - Anthropic Accent Color
-
-extension Color {
-    static let anthropicOrange = Color(red: 232/255, green: 123/255, blue: 53/255)
-}
-
-// MARK: - ContentView
-
 struct ContentView: View {
-    @StateObject private var viewModel = SessionViewModel()
+    @ObservedObject var viewModel: SessionViewModel
     @State private var showSettings = false
     @State private var textInput = ""
     @State private var hasRequestedPermissions = false
-    @State private var isTextFieldFocused = false
     @State private var showQuickActions = false
-    @State private var quickActionsOpacity: Double = 0
+    @State private var pulse = false
 
     var body: some View {
         ZStack {
-            // -- Camera Preview (edge-to-edge) --
-            cameraLayer
-                .ignoresSafeArea()
+            cameraLayer.ignoresSafeArea()
 
-            // -- Subtle bottom gradient (replaces heavy overlay) --
             VStack {
                 Spacer()
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.6), .black.opacity(0.85)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: UIScreen.main.bounds.height * 0.55)
+                LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 460)
             }
             .ignoresSafeArea()
+            .allowsHitTesting(false)
 
-            // -- Top gradient for status bar legibility --
             VStack {
-                LinearGradient(
-                    colors: [.black.opacity(0.5), .clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 140)
+                LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 140)
                 Spacer()
             }
             .ignoresSafeArea()
+            .allowsHitTesting(false)
 
-            // -- Content Layer --
             VStack(spacing: 0) {
-                // -- Top Status Bar --
-                topBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-
-                // -- Mode Selector Bar --
-                modeSelector
-                    .padding(.top, 6)
-
-                // -- Quick Actions (shown briefly on mode change) --
+                topBar.padding(.horizontal, 16).padding(.top, 4)
+                modeSelector.padding(.top, 6)
                 if showQuickActions {
-                    quickActionBar
-                        .padding(.horizontal, 12)
-                        .padding(.top, 6)
-                        .opacity(quickActionsOpacity)
-                        .transition(.opacity)
+                    quickActionBar.padding(.top, 6).transition(.opacity)
+                }
+                if !viewModel.config.isConfigured {
+                    pairingHint.padding(.horizontal, 16).padding(.top, 12)
                 }
 
                 Spacer()
 
-                // -- Transcript (slides up from bottom like iMessage) --
                 if !viewModel.transcript.isEmpty {
-                    TranscriptView(messages: viewModel.transcript)
-                        .frame(maxHeight: UIScreen.main.bounds.height * 0.35)
+                    TranscriptView(messages: viewModel.transcript, fileRequest: viewModel.bridge.fileRequest)
+                        .frame(maxHeight: 300)
                         .padding(.horizontal, 12)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .bottom).combined(with: .opacity),
-                            removal: .opacity
-                        ))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-
-                // -- Live Transcription --
                 if !viewModel.currentTranscription.isEmpty {
-                    liveTranscriptionBanner
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    liveTranscriptionBanner.padding(.horizontal, 16).padding(.top, 8)
                 }
-
-                // -- QR/Barcode Toast --
-                if let toastMessage = viewModel.codeToastMessage,
-                   let detectedCode = viewModel.codeToastDetectedCode {
-                    codeToastBanner(message: toastMessage, code: detectedCode)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 6)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                if let request = viewModel.pendingPermission {
+                    PermissionCard(request: request) { allow in
+                        Task { await viewModel.answerPermission(request, allow: allow) }
+                    }
+                    .padding(.horizontal, 16).padding(.top, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-
-                // -- Error Banner --
+                if let code = viewModel.codeToast {
+                    codeToastBanner(code).padding(.horizontal, 16).padding(.top, 6)
+                }
+                if let notice = viewModel.notice {
+                    noticeBanner(notice).padding(.horizontal, 16).padding(.top, 6)
+                }
                 if let error = viewModel.errorMessage {
-                    errorBanner(error)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 6)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    errorBanner(error).padding(.horizontal, 16).padding(.top, 6)
                 }
-
-                // -- Text Input --
-                textInputBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-
-                // -- Bottom Controls (frosted glass) --
-                bottomControls
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
+                textInputBar.padding(.horizontal, 16).padding(.top, 10)
+                bottomControls.padding(.vertical, 8)
             }
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(
-                config: $viewModel.config,
-                activeFrameSource: $viewModel.activeFrameSource,
-                isConnected: viewModel.isConnected,
-                frameSourceStatus: viewModel.frameSourceStatus,
-                rayBanManager: viewModel.rayBanManager,
-                modeManager: viewModel.modeManager,
-                onConnect: { Task { await viewModel.connect() } },
-                onConnectGlasses: { Task { await viewModel.connectGlasses() } }
-            )
+            SettingsView(viewModel: viewModel, rayBanManager: viewModel.rayBanManager, modeManager: viewModel.modeManager)
         }
-        .onTapGesture {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        .alert("Mit PC koppeln?", isPresented: Binding(
+            get: { viewModel.pendingPairing != nil },
+            set: { if !$0 { viewModel.pendingPairing = nil } }
+        )) {
+            Button("Koppeln") { viewModel.confirmPairing() }
+            Button("Abbrechen", role: .cancel) { viewModel.pendingPairing = nil }
+        } message: {
+            Text("RayBan Claude verbindet sich mit \(viewModel.pendingPairing?.host ?? ""):\(viewModel.pendingPairing.map { String($0.port) } ?? ""). Nur bestätigen, wenn du den QR-Code gerade in deinem eigenen Dashboard gescannt hast.")
         }
         .animation(.easeInOut(duration: 0.25), value: viewModel.transcript.count)
         .animation(.easeInOut(duration: 0.2), value: viewModel.state)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.errorMessage != nil)
-        .animation(.easeInOut(duration: 0.25), value: viewModel.codeToastMessage != nil)
-        .onAppear {
-            UIApplication.shared.isIdleTimerDisabled = true
+        .animation(.easeInOut(duration: 0.2), value: viewModel.errorMessage)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.pendingPermission)
+        .onChange(of: viewModel.modeManager.activeMode.id) { _, _ in showQuickActionsTemporarily() }
+        .onChange(of: viewModel.notice) { _, notice in
+            guard notice != nil else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                if viewModel.notice == notice { viewModel.notice = nil }
+            }
         }
-        .onDisappear {
-            UIApplication.shared.isIdleTimerDisabled = false
-        }
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .task {
             guard !hasRequestedPermissions else { return }
             hasRequestedPermissions = true
-            let authorized = await viewModel.speechManager.requestAuthorization()
-            if authorized {
+            if await viewModel.speechManager.requestAuthorization() {
                 await viewModel.connect()
+            } else {
+                viewModel.errorMessage = "Mikrofon/Spracherkennung nicht erlaubt – in den iOS-Einstellungen freigeben"
             }
         }
     }
 
-    // MARK: - Camera Layer
+    // MARK: - Kamera
 
     @ViewBuilder
     private var cameraLayer: some View {
         if viewModel.activeFrameSource == .iPhone {
             CameraPreviewView(session: viewModel.cameraManager.captureSession)
         } else {
-            ZStack {
-                RayBanVideoView(rayBanManager: viewModel.rayBanManager)
-
-                if viewModel.rayBanFrame == nil {
-                    Color.black
-                    VStack(spacing: 16) {
-                        Image(systemName: "eyeglasses")
-                            .font(.system(size: 52, weight: .thin))
-                            .foregroundStyle(.linearGradient(
-                                colors: [.anthropicOrange.opacity(0.6), .anthropicOrange.opacity(0.2)],
-                                startPoint: .top, endPoint: .bottom
-                            ))
-                        if viewModel.frameSourceStatus.isConnected {
-                            ProgressView()
-                                .tint(.anthropicOrange)
-                                .scaleEffect(1.1)
-                            Text("Receiving stream...")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(viewModel.frameSourceStatus.label)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
+            RayBanLayer(
+                rayBanManager: viewModel.rayBanManager,
+                status: viewModel.frameSourceStatus,
+                isConnected: viewModel.isConnected
+            )
         }
     }
 
-    // MARK: - Mode Selector
+    // MARK: - Modi
 
     private var modeSelector: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(viewModel.modeManager.visibleModes) { mode in
-                        modePill(mode)
-                            .id(mode.id)
+                        modePill(mode).id(mode.id)
                     }
                 }
                 .padding(.horizontal, 16)
             }
             .onChange(of: viewModel.modeManager.activeMode.id) { _, newId in
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    proxy.scrollTo(newId, anchor: .center)
-                }
-                showQuickActionsTemporarily()
+                withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(newId, anchor: .center) }
             }
         }
     }
@@ -214,60 +142,37 @@ struct ContentView: View {
     private func modePill(_ mode: VisionMode) -> some View {
         let isActive = viewModel.modeManager.activeMode.id == mode.id
         return Button {
-            triggerHaptic(.light)
+            haptic(.light)
             viewModel.modeManager.setActiveMode(mode)
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: mode.icon)
-                    .font(.system(size: 11, weight: .semibold))
-                Text(mode.name)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .lineLimit(1)
-                    .fixedSize()
+                Image(systemName: mode.icon).font(.system(size: 11, weight: .semibold))
+                Text(mode.name).font(.system(size: 11, weight: .semibold, design: .rounded)).lineLimit(1).fixedSize()
             }
             .foregroundStyle(isActive ? .white : .white.opacity(0.75))
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(
-                Capsule()
-                    .fill(isActive ? mode.swiftColor.opacity(0.85) : .white.opacity(0.1))
-            )
-            .overlay(
-                Capsule()
-                    .strokeBorder(
-                        isActive ? mode.swiftColor : .clear,
-                        lineWidth: isActive ? 1.5 : 0
-                    )
-            )
-            .shadow(color: isActive ? mode.swiftColor.opacity(0.4) : .clear, radius: 6, y: 2)
+            .background(Capsule().fill(isActive ? mode.swiftColor.opacity(0.85) : .white.opacity(0.1)))
+            .overlay(Capsule().strokeBorder(isActive ? mode.swiftColor : .clear, lineWidth: 1.5))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Modus \(mode.name)\(isActive ? ", aktiv" : "")")
     }
-
-    // MARK: - Quick Actions
 
     private var quickActionBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(viewModel.modeManager.activeMode.quickActions, id: \.self) { action in
                     Button {
-                        triggerHaptic(.light)
-                        textInput = action
-                        sendTextInput()
+                        haptic(.light)
+                        Task { await viewModel.sendText(action) }
                     } label: {
                         Text(action)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.9))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
-                            .background(
-                                viewModel.modeManager.activeMode.swiftColor.opacity(0.3),
-                                in: Capsule()
-                            )
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(.white.opacity(0.15), lineWidth: 0.5)
-                            )
+                            .background(viewModel.modeManager.activeMode.swiftColor.opacity(0.3), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -277,60 +182,39 @@ struct ContentView: View {
     }
 
     private func showQuickActionsTemporarily() {
-        showQuickActions = true
-        withAnimation(.easeIn(duration: 0.2)) {
-            quickActionsOpacity = 1.0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-            withAnimation(.easeOut(duration: 0.5)) {
-                quickActionsOpacity = 0
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                showQuickActions = false
-            }
+        withAnimation { showQuickActions = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            withAnimation(.easeOut(duration: 0.5)) { showQuickActions = false }
         }
     }
 
-    // MARK: - Send
-
-    private func sendTextInput() {
-        let text = textInput
-        textInput = ""
-        triggerHaptic(.light)
-        Task { await viewModel.sendText(text) }
-    }
-
-    // MARK: - Top Bar
+    // MARK: - Statusleiste
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            // Connection indicator
             HStack(spacing: 6) {
                 Circle()
                     .fill(viewModel.isConnected ? .green : .red)
                     .frame(width: 8, height: 8)
-                    .shadow(color: viewModel.isConnected ? .green.opacity(0.5) : .red.opacity(0.5), radius: 4)
-
-                Image(systemName: viewModel.connectionMode == .channel ? "bolt.fill" : "globe")
+                Image(systemName: viewModel.config.connectionMode == .channel ? "bolt.fill" : "globe")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(viewModel.isConnected ? .white : .white.opacity(0.5))
-
                 Image(systemName: viewModel.activeFrameSource.icon)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(frameSourceColor)
+                if viewModel.activeFrameSource == .rayBan {
+                    BatteryBadge(rayBanManager: viewModel.rayBanManager)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(.ultraThinMaterial, in: Capsule())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(viewModel.isConnected ? "Mit PC verbunden" : "Nicht verbunden")
 
-            // State pill
             HStack(spacing: 5) {
-                stateIcon
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(stateColor)
+                stateIcon.font(.system(size: 11, weight: .medium)).foregroundStyle(stateColor)
                 Text(viewModel.state.rawValue)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
                     .lineLimit(1)
                     .fixedSize()
             }
@@ -338,41 +222,43 @@ struct ContentView: View {
             .padding(.vertical, 8)
             .background(.ultraThinMaterial, in: Capsule())
 
-            if viewModel.isProcessing {
-                ProgressView()
-                    .tint(.anthropicOrange)
-                    .scaleEffect(0.8)
-            }
-
             Spacer()
 
-            // Settings button
             Button {
-                triggerHaptic(.light)
+                haptic(.light)
                 showSettings = true
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
                     .frame(width: 36, height: 36)
                     .background(.ultraThinMaterial, in: Circle())
             }
+            .accessibilityLabel("Einstellungen")
         }
+        .foregroundStyle(.white)
     }
 
-    // MARK: - Live Transcription
+    private var pairingHint: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "qrcode.viewfinder").font(.system(size: 26)).foregroundStyle(Color.anthropicOrange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Mit deinem PC koppeln").font(.headline)
+                Text("Auf dem PC Claude starten, Dashboard öffnen (localhost:18790) und den QR-Code mit der iPhone-Kamera scannen.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    // MARK: - Banner
 
     private var liveTranscriptionBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "waveform")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(Color.anthropicOrange)
+                .foregroundStyle(Color.anthropicOrange)
                 .symbolEffect(.variableColor.iterative, isActive: true)
-
-            Text(viewModel.currentTranscription)
-                .font(.subheadline)
-                .foregroundStyle(.white)
-                .lineLimit(2)
+            Text(viewModel.currentTranscription).font(.subheadline).lineLimit(2)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -380,141 +266,97 @@ struct ContentView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    // MARK: - QR/Barcode Toast
-
-    private func codeToastBanner(message: String, code: DetectedCode) -> some View {
+    private func codeToastBanner(_ code: DetectedCode) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "qrcode")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.green)
-
+            Image(systemName: "qrcode").foregroundStyle(.green)
             VStack(alignment: .leading, spacing: 2) {
-                Text(code.type.uppercased())
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.green.opacity(0.8))
-                Text(code.value)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
+                Text(code.typeLabel).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(.green.opacity(0.8))
+                Text(code.value).font(.system(size: 13, weight: .medium)).lineLimit(2)
             }
-
             Spacer()
-
-            // Copy button
-            Button {
-                triggerHaptic(.light)
-                viewModel.copyCodeToClipboard(code)
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: 30, height: 30)
-                    .background(.white.opacity(0.15), in: Circle())
+            Button { viewModel.copyCodeToClipboard(code) } label: {
+                Image(systemName: "doc.on.doc").frame(width: 30, height: 30).background(.white.opacity(0.15), in: Circle())
             }
-
-            // Send to Claude button
-            Button {
-                triggerHaptic(.medium)
-                viewModel.sendCodeToChat(code)
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(.green)
+            .accessibilityLabel("Code kopieren")
+            Button { viewModel.sendCodeToChat(code) } label: {
+                Image(systemName: "arrow.up.circle.fill").font(.system(size: 24)).foregroundStyle(.green)
             }
+            .accessibilityLabel("Code an Claude senden")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.green.opacity(0.3), lineWidth: 1)
-                )
-        )
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    // MARK: - Error Banner
+    private func noticeBanner(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: Capsule())
+    }
 
     private func errorBanner(_ error: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(.white)
-
-            Text(error)
-                .font(.caption)
-                .foregroundStyle(.white)
-                .lineLimit(2)
-
+            Text(error).font(.caption).lineLimit(3)
             Spacer()
-
-            Button {
-                viewModel.errorMessage = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: 22, height: 22)
-                    .background(.white.opacity(0.2), in: Circle())
+            Button { viewModel.errorMessage = nil } label: {
+                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                    .frame(width: 22, height: 22).background(.white.opacity(0.2), in: Circle())
             }
+            .accessibilityLabel("Meldung schließen")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(Color.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    // MARK: - Text Input Bar
+    // MARK: - Eingabe
 
     private var textInputBar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                TextField("Message...", text: $textInput, axis: .vertical)
-                    .lineLimit(1...4)
-                    .textFieldStyle(.plain)
-                    .foregroundStyle(.white)
-                    .tint(.anthropicOrange)
-                    .onSubmit { sendTextInput() }
-
-                if !textInput.isEmpty {
-                    Button(action: sendTextInput) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(Color.anthropicOrange)
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                    .transition(.scale.combined(with: .opacity))
+        HStack(spacing: 8) {
+            TextField("Nachricht …", text: $textInput, axis: .vertical)
+                .lineLimit(1...4)
+                .textFieldStyle(.plain)
+                .tint(.anthropicOrange)
+                .onSubmit(sendTextInput)
+            if !textInput.isEmpty {
+                Button(action: sendTextInput) {
+                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 28)).foregroundStyle(Color.anthropicOrange)
                 }
+                .accessibilityLabel("Senden")
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
         }
-        .animation(.easeInOut(duration: 0.15), value: textInput.isEmpty)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
     }
 
-    // MARK: - Bottom Controls
+    private func sendTextInput() {
+        let text = textInput
+        textInput = ""
+        haptic(.light)
+        Task { await viewModel.sendText(text) }
+    }
 
     private var bottomControls: some View {
         HStack(spacing: 0) {
-            // Reset button
             Button {
-                triggerHaptic(.medium)
-                Task { await viewModel.resetConversation() }
+                haptic(.medium)
+                viewModel.resetConversation()
             } label: {
                 VStack(spacing: 4) {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 18, weight: .medium))
-                    Text("Reset")
-                        .font(.system(size: 10, weight: .medium))
+                    Image(systemName: "arrow.counterclockwise").font(.system(size: 18, weight: .medium))
+                    Text("Neu").font(.system(size: 10, weight: .medium))
                 }
                 .foregroundStyle(.white.opacity(0.65))
                 .frame(maxWidth: .infinity)
             }
+            .accessibilityLabel("Gespräch zurücksetzen")
 
-            // Mic button (prominent center)
             Button {
-                triggerHaptic(viewModel.state == .speaking ? .rigid : .medium)
+                haptic(viewModel.state == .speaking ? .rigid : .medium)
                 if viewModel.state == .speaking {
                     viewModel.interruptSpeaking()
                 } else if viewModel.isConnected {
@@ -524,29 +366,23 @@ struct ContentView: View {
                 }
             } label: {
                 ZStack {
-                    // Outer pulse ring for listening state
                     if viewModel.state == .listening {
                         Circle()
-                            .stroke(Color.red.opacity(0.3), lineWidth: 3)
+                            .stroke(Color.red.opacity(0.4), lineWidth: 3)
                             .frame(width: 82, height: 82)
-                            .scaleEffect(viewModel.state == .listening ? 1.15 : 1.0)
-                            .opacity(viewModel.state == .listening ? 0 : 1)
-                            .animation(
-                                .easeOut(duration: 1.2).repeatForever(autoreverses: false),
-                                value: viewModel.state
-                            )
+                            .scaleEffect(pulse ? 1.2 : 1.0)
+                            .opacity(pulse ? 0 : 1)
+                            .onAppear {
+                                pulse = false
+                                withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) { pulse = true }
+                            }
                     }
-
-                    // Main button
                     Circle()
-                        .fill(micButtonGradient)
+                        .fill(micButtonColor.gradient)
                         .frame(width: 72, height: 72)
                         .shadow(color: micButtonColor.opacity(0.4), radius: 12, y: 4)
-
-                    if viewModel.isProcessing {
-                        ProgressView()
-                            .tint(.white)
-                            .scaleEffect(1.1)
+                    if viewModel.isProcessing && viewModel.state == .thinking {
+                        ProgressView().tint(.white)
                     } else {
                         Image(systemName: micButtonIcon)
                             .font(.system(size: 26, weight: .semibold))
@@ -556,34 +392,31 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            .accessibilityLabel(micAccessibilityLabel)
 
-            // Source toggle
             Button {
-                triggerHaptic(.light)
+                haptic(.light)
                 viewModel.activeFrameSource = viewModel.activeFrameSource == .iPhone ? .rayBan : .iPhone
             } label: {
                 VStack(spacing: 4) {
                     Image(systemName: viewModel.activeFrameSource.icon)
                         .font(.system(size: 18, weight: .medium))
                         .foregroundStyle(frameSourceColor)
-                        .contentTransition(.symbolEffect(.replace))
-                    Text(viewModel.activeFrameSource == .iPhone ? "iPhone" : "Glasses")
+                    Text(viewModel.activeFrameSource.shortLabel)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.white.opacity(0.65))
                 }
                 .frame(maxWidth: .infinity)
             }
+            .accessibilityLabel("Kamera wechseln, aktuell \(viewModel.activeFrameSource.rawValue)")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
-        .background(
-            .ultraThinMaterial,
-            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-        )
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .padding(.horizontal, 12)
     }
 
-    // MARK: - Helpers
+    // MARK: - Hilfen
 
     @ViewBuilder
     private var stateIcon: some View {
@@ -615,22 +448,22 @@ struct ContentView: View {
         }
     }
 
-    private var micButtonGradient: LinearGradient {
-        let base = micButtonColor
-        return LinearGradient(
-            colors: [base, base.opacity(0.8)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
     private var micButtonIcon: String {
         switch viewModel.state {
         case .listening: return "mic.fill"
         case .thinking: return "ellipsis"
         case .speaking: return "stop.fill"
         case .disconnected: return "wifi.slash"
-        default: return "mic"
+        case .idle: return "mic"
+        }
+    }
+
+    private var micAccessibilityLabel: String {
+        switch viewModel.state {
+        case .listening: return "Zuhören beenden"
+        case .speaking: return "Sprechen unterbrechen"
+        case .disconnected: return "Mit PC verbinden"
+        default: return "Sprechen"
         }
     }
 
@@ -639,16 +472,57 @@ struct ContentView: View {
         case .connected: return .green
         case .connecting: return .yellow
         case .error: return .red
-        default: return .white.opacity(0.5)
+        case .disconnected: return .white.opacity(0.5)
         }
     }
 
-    private func triggerHaptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
+    private func haptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
         UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
 }
 
-// MARK: - Camera Preview (iPhone AVCaptureSession)
+// MARK: - Freigabe-Karte (Permission-Relay)
+
+struct PermissionCard: View {
+    let request: PermissionRequest
+    let answer: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Claude möchte \(request.toolName) ausführen", systemImage: "lock.shield.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.anthropicOrange)
+            if !request.description.isEmpty {
+                Text(request.description).font(.caption)
+            }
+            if !request.inputPreview.isEmpty {
+                Text(request.inputPreview)
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineLimit(4)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+            }
+            HStack {
+                Button(role: .destructive) { answer(false) } label: {
+                    Label("Ablehnen", systemImage: "xmark").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                Button { answer(true) } label: {
+                    Label("Erlauben", systemImage: "checkmark").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+            }
+            Text("Oder einfach „Ja“ bzw. „Nein“ sagen.").font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.anthropicOrange.opacity(0.6)))
+    }
+}
+
+// MARK: - Vorschau iPhone-Kamera
 
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
@@ -660,89 +534,76 @@ struct CameraPreviewView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: PreviewContainerView, context: Context) {
-        uiView.previewLayer.session = session
-    }
+    func updateUIView(_ uiView: PreviewContainerView, context: Context) {}
 
-    class PreviewContainerView: UIView {
-        let previewLayer = AVCaptureVideoPreviewLayer()
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            layer.addSublayer(previewLayer)
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            previewLayer.frame = bounds
+    final class PreviewContainerView: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        var previewLayer: AVCaptureVideoPreviewLayer {
+            // layerClass ist oben auf AVCaptureVideoPreviewLayer gesetzt
+            layer as! AVCaptureVideoPreviewLayer // swiftlint:disable:this force_cast
         }
     }
 }
 
-// MARK: - Ray-Ban Video Feed (high-performance UIImageView renderer)
+// MARK: - Vorschau Brille
 
-struct RayBanVideoView: UIViewRepresentable {
-    let rayBanManager: RayBanManager
+/// Eigene Teilansicht, damit nur sie bei jedem Videobild neu gezeichnet wird.
+struct RayBanLayer: View {
+    @ObservedObject var rayBanManager: RayBanManager
+    let status: FrameSourceStatus
+    let isConnected: Bool
 
-    func makeUIView(context: Context) -> RayBanVideoUIView {
-        let view = RayBanVideoUIView()
-        view.manager = rayBanManager
-        return view
-    }
-
-    func updateUIView(_ uiView: RayBanVideoUIView, context: Context) {
-        // Manager reference stays the same — frames push via observation
-    }
-
-    class RayBanVideoUIView: UIView {
-        private let imageView = UIImageView()
-        private var displayLink: CADisplayLink?
-        weak var manager: RayBanManager? {
-            didSet { startDisplayLink() }
-        }
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            backgroundColor = .black
-            imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            addSubview(imageView)
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            imageView.frame = bounds
-        }
-
-        private func startDisplayLink() {
-            displayLink?.invalidate()
-            displayLink = CADisplayLink(target: self, selector: #selector(updateFrame))
-            displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 24, maximum: 60, preferred: 30)
-            displayLink?.add(to: .main, forMode: .common)
-        }
-
-        @objc private func updateFrame() {
-            guard let manager else { return }
-            // Read latestImage directly — UIKit image view swap is near-zero cost
-            Task { @MainActor in
-                if let image = manager.latestImage {
-                    self.imageView.image = image
+    var body: some View {
+        ZStack {
+            RayBanVideoView(rayBanManager: rayBanManager)
+            if rayBanManager.latestImage == nil {
+                Color.black
+                VStack(spacing: 16) {
+                    Image(systemName: "eyeglasses")
+                        .font(.system(size: 52, weight: .thin))
+                        .foregroundStyle(Color.anthropicOrange.opacity(0.6))
+                    if status.isConnected {
+                        ProgressView().tint(.anthropicOrange)
+                        Text("Empfange Bild der Brille …").font(.subheadline).foregroundStyle(.secondary)
+                    } else {
+                        Text(isConnected ? status.label : "Erst mit dem PC verbinden")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
                 }
             }
         }
+    }
+}
 
-        override func removeFromSuperview() {
-            displayLink?.invalidate()
-            displayLink = nil
-            super.removeFromSuperview()
+struct BatteryBadge: View {
+    @ObservedObject var rayBanManager: RayBanManager
+
+    var body: some View {
+        if let battery = rayBanManager.batteryLevel {
+            Text("\(battery) %")
+                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .accessibilityLabel("Akku der Brille \(battery) Prozent")
         }
+    }
+}
+
+struct RayBanVideoView: UIViewRepresentable {
+    @ObservedObject var rayBanManager: RayBanManager
+
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView()
+        view.backgroundColor = .black
+        view.contentMode = .scaleAspectFill
+        view.clipsToBounds = true
+        return view
+    }
+
+    /// Wird bei jedem neuen Bild aufgerufen (früher lief dafür ein Display-Link,
+    /// der pro Bildschirm-Frame eine Task erzeugte).
+    func updateUIView(_ uiView: UIImageView, context: Context) {
+        uiView.image = rayBanManager.latestImage
     }
 }

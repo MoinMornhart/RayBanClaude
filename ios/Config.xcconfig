@@ -1,0 +1,15 @@
+// Gemeinsame Build-Einstellungen für RayBan Claude.
+// Eigene Werte (Team-ID, Meta-App-ID) NICHT hier eintragen, sondern in
+// ios/Secrets.xcconfig (wird nicht committet). Vorlage: Secrets.xcconfig.example
+
+// Bundle-ID ohne Bindestrich (Vorgabe des Meta DAT SDK)
+RAYBANCLAUDE_BUNDLE_ID = com.raybanclaude.app
+
+// Apple-Team – leer lassen, Xcode bzw. Sideloadly setzen das beim Signieren
+DEVELOPMENT_TEAM =
+
+// Meta Wearables: im Entwicklermodus der Meta-AI-App nicht nötig ("0" = keine App-ID)
+META_APP_ID = 0
+META_CLIENT_TOKEN =
+
+#include? "Secrets.xcconfig"
