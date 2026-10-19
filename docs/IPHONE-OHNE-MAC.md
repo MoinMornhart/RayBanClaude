@@ -14,8 +14,9 @@ aufs iPhone gebracht.
 
 ## 1. IPA herunterladen
 
-- **Einfach:** Auf der [Releases-Seite](https://github.com/MoinMornhart/RayBanClaude/releases)
-  die Datei `RayBanClaude.ipa` laden.
+- **Einfach:** Auf der [Releases-Seite](https://github.com/MoinMornhart/RayBanClaude/releases/latest)
+  die Datei `RayBanClaude.ipa` laden. Zum Prüfen liegt `RayBanClaude.ipa.sha256` daneben –
+  unter Windows vergleichen mit: `Get-FileHash RayBanClaude.ipa -Algorithm SHA256`
 - **Neuester Stand:** [Actions → „iOS-App bauen“](https://github.com/MoinMornhart/RayBanClaude/actions/workflows/ios-build.yml)
   → letzten grünen Lauf öffnen → unten unter *Artifacts* `RayBanClaude-ipa` laden und entpacken
   (dafür musst du bei GitHub angemeldet sein).

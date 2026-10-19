@@ -18,6 +18,8 @@
 </p>
 
 <p align="center">
+  <a href="https://moinmornhart.github.io/RayBanClaude/"><b>🌐 Projektseite</b></a> ·
+  <a href="https://github.com/MoinMornhart/RayBanClaude/releases/latest"><b>⬇️ App herunterladen</b></a> ·
   <a href="#-schnellstart-windows">Schnellstart</a> ·
   <a href="docs/IPHONE-OHNE-MAC.md">iPhone-App ohne Mac</a> ·
   <a href="#-häufige-fragen">FAQ</a> ·
