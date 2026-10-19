@@ -73,6 +73,14 @@ was in RayBan Claude daraus wurde. Schweregrad: 🔴 kritisch · 🟠 hoch · �
   Für unterwegs: Tailscale o. Ä. statt Port-Freigabe im Router.
 - **Prompt-Injection über Kamerabilder** (Text im Bild) lässt sich nicht vollständig verhindern –
   deshalb bleiben Tool-Freigaben aktiv und Claude soll vor Aktionen mit Außenwirkung nachfragen.
+  Im Gateway-Modus (ohne Rückfragen) sind standardmäßig nur lesende Werkzeuge freigegeben (`MCP_TOOL_ALLOWLIST`).
+
+## Nachgezogen nach dem Sicherheits-Check (2026-10-19)
+
+- Gateway: Erlaubt-Liste für MCP-Werkzeuge, Standard = nur lesende Werkzeuge (`server/src/tool-policy.ts`).
+- Channel: Token nur noch im `Authorization`-Header, nicht mehr als URL-Parameter (+ Test).
+- `.gitignore`: `.env.*`, Schlüssel- und Zertifikatsdateien, lokale Datenbanken, Python-Caches.
+- gitleaks-Fehlalarm (öffentliche Stimmen-ID) entschärft: Platzhalter + `.gitleaksignore` mit Begründung.
 - Meta DAT 1.0.x hat bei Gen 2 ein bekanntes **Speicherleck** im Bluetooth-Puffer (~4 MB/min, Meta-Issue #324) –
   bei sehr langen Sitzungen App gelegentlich neu starten.
 - Die iPhone-App ist in der Cloud gebaut, aber **noch nicht auf echter Hardware** (Brille + iPhone) getestet.

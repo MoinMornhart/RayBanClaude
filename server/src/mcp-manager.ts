@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { c } from "./console-theme.js";
+import type { ToolPolicy } from "./tool-policy.js";
 import type { DiscoveredTool, MCPServerConfig, Tool } from "./types.js";
 
 // ── MCP-Manager ─────────────────────────────────────────────────────
@@ -145,8 +146,14 @@ export class MCPManager {
   private readonly servers = new Map<string, ConnectedServer>();
   private readonly toolToServer = new Map<string, string>(); // Werkzeugname → Servername
 
-  /** @param reservedToolNames Namen, die lokal belegt sind (z. B. "skill_laden") */
-  constructor(private readonly reservedToolNames: ReadonlySet<string> = new Set()) {}
+  /**
+   * @param policy Erlaubt-Liste – nur freigegebene Werkzeuge erreichen Claude
+   * @param reservedToolNames Namen, die lokal belegt sind (z. B. "skill_laden")
+   */
+  constructor(
+    private readonly policy: ToolPolicy,
+    private readonly reservedToolNames: ReadonlySet<string> = new Set()
+  ) {}
 
   async initialize(): Promise<void> {
     const config = await this.loadConfig();
@@ -219,6 +226,7 @@ export class MCPManager {
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
+      readOnly: tool.annotations?.readOnlyHint === true,
     }));
 
     const typeLabel = isRemote ? c.cyan("[entfernt]") : c.dim("[lokal]");
@@ -229,9 +237,20 @@ export class MCPManager {
     return { name, client, tools, type: isRemote ? "remote" : "stdio" };
   }
 
-  /** Übernimmt die Werkzeuge eines Servers; ungültige Namen und Kollisionen werden gemeldet. */
+  /**
+   * Übernimmt die Werkzeuge eines Servers. Ungültige Namen, nicht freigegebene
+   * Werkzeuge (Erlaubt-Liste) und Namenskollisionen werden gemeldet und ausgelassen.
+   */
   private register(server: ConnectedServer): void {
+    const blocked = server.tools.filter((tool) => !this.policy.allows(tool)).map((tool) => tool.name);
+    if (blocked.length) {
+      console.log(
+        c.label("[MCP]") +
+          c.dim(` „${server.name}“: ${blocked.length} Werkzeug(e) gesperrt (${blocked.join(", ")}) – freischalten mit MCP_TOOL_ALLOWLIST`)
+      );
+    }
     const accepted = server.tools.filter((tool) => {
+      if (!this.policy.allows(tool)) return false;
       if (!TOOL_NAME_PATTERN.test(tool.name)) {
         console.warn(
           c.label("[MCP]") +
@@ -293,10 +312,11 @@ export class MCPManager {
 
   /** Ruft ein MCP-Werkzeug auf. Fehler werden als MCPToolError geworfen. */
   async invokeTool(toolName: string, args: Record<string, unknown>): Promise<unknown> {
+    // Nur registrierte (also freigegebene) Werkzeuge sind aufrufbar
     const serverName = this.toolToServer.get(toolName);
     const server = serverName ? this.servers.get(serverName) : undefined;
     if (!serverName || !server) {
-      throw new MCPToolError(`Unbekanntes Werkzeug: ${toolName}`);
+      throw new MCPToolError(`Unbekanntes oder nicht freigegebenes Werkzeug: ${toolName}`);
     }
 
     console.log(c.label("[MCP]") + ` Rufe ${c.value(toolName)} auf „${serverName}“ auf...`);

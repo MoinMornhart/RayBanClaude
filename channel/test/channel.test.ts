@@ -159,6 +159,11 @@ describe('HTTP-Sicherheit', () => {
     expect((await authed('/api/status')).status).toBe(HTTP_OK)
   })
 
+  test('Token in der URL wird nicht akzeptiert (nur Authorization-Header)', async () => {
+    const res = await fetch(`${BASE}/ws?token=${state.token}`)
+    expect(res.status).toBe(HTTP_UNAUTHORIZED)
+  })
+
   test('Pfad-Traversal bei /files wird abgewiesen', async () => {
     const res = await authed('/files/..%2F.channel-token')
     expect(res.status).toBe(HTTP_BAD_REQUEST)

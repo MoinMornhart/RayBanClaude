@@ -22,7 +22,9 @@ Firewall-Abfrage für **private Netzwerke** erlauben.
 
 ```
 # Natürlichere Stimme (kostenpflichtig, ohne Key spricht das iPhone kostenlos)
-ELEVENLABS_API_KEY=
+ELEVENLABS_API_KEY=<dein-elevenlabs-key>
+
+# Stimme (Standard: Charlotte)
 ELEVENLABS_VOICE_ID=XB0fDUnXU5powFXDhCwa
 
 # Anderer Port (Standard 18790)

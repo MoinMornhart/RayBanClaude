@@ -56,6 +56,8 @@ export interface DiscoveredTool {
   name: string;
   description?: string;
   inputSchema: Record<string, unknown>;
+  /** Server kennzeichnet das Werkzeug als „nur lesend“ (MCP-Annotation readOnlyHint) */
+  readOnly: boolean;
 }
 
 // ── Konversation ──

@@ -30,6 +30,7 @@ import { createHealthRouter } from "./routes/health.js";
 import { createSkillsRouter } from "./routes/skills.js";
 import { createToolsRouter } from "./routes/tools.js";
 import { SkillLoader } from "./skill-loader.js";
+import { parseToolPolicy } from "./tool-policy.js";
 import { EFFORT_LEVELS } from "./types.js";
 import type { Effort } from "./types.js";
 import { MODEL_PATTERN } from "./validation.js";
@@ -176,8 +177,10 @@ async function main(): Promise<void> {
   const settings = readStartupSettings();
   const gatewayToken = resolveGatewayToken();
 
-  // MCP-Server verbinden ("skill_laden" ist lokal reserviert)
-  const mcpManager = new MCPManager(new Set([SKILL_TOOL_NAME]));
+  // MCP-Server verbinden – nur freigegebene Werkzeuge ("skill_laden" ist lokal reserviert)
+  const toolPolicy = parseToolPolicy(process.env.MCP_TOOL_ALLOWLIST);
+  console.log(c.label("[MCP]") + ` Werkzeuge: ${toolPolicy.description}`);
+  const mcpManager = new MCPManager(toolPolicy, new Set([SKILL_TOOL_NAME]));
   await mcpManager.initialize();
 
   const skillLoader = new SkillLoader();

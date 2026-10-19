@@ -8,8 +8,26 @@ DerivedData/
 
 # Geheimnisse – niemals committen
 .env
+.env.*
+!.env.example
 *.env.local
 ios/Secrets.xcconfig
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.mobileprovision
+credentials*.json
+
+# Lokale Datenbanken
+*.sqlite
+*.sqlite3
+*.db
+
+# Python (Hilfsskripte)
+__pycache__/
+.venv/
 
 # Claude-Code-Einstellungen (können Tokens/Keys enthalten)
 .claude/settings.local.json

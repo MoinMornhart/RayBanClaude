@@ -609,12 +609,12 @@ function staticFile(file: string, type: string, csp?: string): Route {
   }
 }
 
-function checkToken(ctx: Ctx, allowQuery: boolean): Response | null {
+/** Token nur im Authorization-Header – nie in der URL (dort landet es sonst in Logs und Proxys). */
+function checkToken(ctx: Ctx): Response | null {
   if (isLocked(ctx.ip)) return fail(C.HTTP_TOO_MANY_REQUESTS, 'Zu viele Fehlversuche – bitte später erneut versuchen')
   const header = ctx.req.headers.get('authorization') ?? ''
   const bearer = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : null
-  const query = allowQuery ? ctx.url.searchParams.get('token') : null
-  if (tokenMatches(bearer) || tokenMatches(query)) return null
+  if (tokenMatches(bearer)) return null
   noteAuthFail(ctx.ip)
   return fail(C.HTTP_UNAUTHORIZED, 'Nicht autorisiert – Token in der App prüfen oder QR-Code neu scannen')
 }
@@ -628,8 +628,8 @@ function checkLocal(ctx: Ctx): Response | null {
 const ACCESS_CHECKS: Readonly<Record<Access, (ctx: Ctx) => Response | null>> = {
   public: () => null,
   local: checkLocal,
-  token: ctx => checkToken(ctx, false),
-  admin: ctx => checkLocal(ctx) ?? checkToken(ctx, false),
+  token: checkToken,
+  admin: ctx => checkLocal(ctx) ?? checkToken(ctx),
 }
 
 async function handleUpload({ req }: Ctx): Promise<Response> {
@@ -767,9 +767,9 @@ async function handle(req: Request, server: BunServer<WsData>): Promise<Response
   const url = new URL(req.url)
   const ctx: Ctx = { req, url, server, ip: server.requestIP(req)?.address ?? 'unbekannt' }
 
-  // WebSocket (App) – Token per Header, Query-Parameter als Fallback
+  // WebSocket (App) – Token im Authorization-Header
   if (url.pathname === '/ws') {
-    const denied = checkToken(ctx, true)
+    const denied = checkToken(ctx)
     if (denied) return denied
     if (server.upgrade(req, { data: { ip: ctx.ip } })) return undefined
     return fail(C.HTTP_BAD_REQUEST, 'WebSocket-Upgrade fehlgeschlagen')

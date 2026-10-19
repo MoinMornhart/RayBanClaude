@@ -1,0 +1,5 @@
+# Geprüfte Fehlalarme von gitleaks (nur einzelne Fundstellen, kein Pauschal-Ignorieren).
+#
+# Leere Zeile "ELEVENLABS_API_KEY=" gefolgt von der öffentlichen ElevenLabs-Stimmen-ID
+# "Charlotte" in der nächsten Zeile – kein Geheimnis. Seit dem Folge-Commit steht dort ein Platzhalter.
+8a9f5b2a9e397b96dc85d9c92cf2398ffbf0590a:channel/skills/configure/SKILL.md:generic-api-key:25

@@ -88,6 +88,9 @@ Mehr Details: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Das Dashboard ist **nur am PC selbst** erreichbar (Schutz gegen DNS-Rebinding).
 - Claude-Code-Freigaben bleiben aktiv; vorab erlaubt sind nur die Antwort-Tools von RayBan Claude.
   **Nicht** mit `--dangerously-skip-permissions` betreiben: Text in Kamerabildern kann Anweisungen enthalten (Prompt-Injection).
+- Gateway-Modus (ohne Rückfragen): Claude bekommt standardmäßig nur Werkzeuge, die sich als „nur lesend“ ausweisen.
+  Weitere gezielt per `MCP_TOOL_ALLOWLIST` in `server/.env` freischalten (z. B. `readonly,kalender/*`).
+- Das Token wird nur im `Authorization`-Header übertragen, nie in der URL.
 - Im WLAN läuft die Verbindung per HTTP (LAN-IPs haben kein Zertifikat). Für unterwegs: VPN wie Tailscale statt Port-Freigabe.
 
 ## Für Entwickler
