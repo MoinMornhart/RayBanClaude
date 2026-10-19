@@ -67,7 +67,7 @@ jobs:
           foreach ($file in 'setup.ps1', 'start.ps1', 'firewall.ps1') {
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$null, [ref]$errors)
-            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Host "$file: $($_.Message)" } }
+            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Host "${file}: $($_.Message)" } }
           }
           if ($failed) { exit 1 }
 
