@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-AOu4cNpwy+iQLhFSC39kLN2/FYRqFUUTzKvW/sTlPaE='; style-src 'sha256-ct8sxFITY4EffaV9OcsrCcrDj9WiW/qQxQWiFykuVVs=' 'sha256-s20S4D1bzkQfOvo09rRpBFjLWtA2nWbavKTkMXajwBA=' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-AOu4cNpwy+iQLhFSC39kLN2/FYRqFUUTzKvW/sTlPaE='; style-src 'sha256-ct8sxFITY4EffaV9OcsrCcrDj9WiW/qQxQWiFykuVVs=' 'sha256-wMhteQq7RMWg3WXorIe8UmXsyiRwu1UvZ0cdaQLLb4M=' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; upgrade-insecure-requests">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RayBan Claude</title>
@@ -10,34 +10,41 @@
 <meta name="description" content="RayBan Claude: Ray-Ban Meta Gen 2 und iPhone als Augen und Ohren von Claude Code – läuft mit Windows-PCs, kostenlos, Open Source.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Share+Tech+Mono&display=swap">
 <style>html{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
 </head>
 <body>
 <style>
-/* Layout: Sucher-Konzept – Hero mit Kamerasucher (Hochformat wie der Brillen-Stream), darunter ruhige Leseabschnitte mit HUD-Beschriftungen */
+/* Layout: Hologramm-HUD – Hero mit Kamerasucher in rotierenden Reaktor-Ringen, darunter HUD-Paneele mit Haarlinien; bewusst nur dunkel */
 :root {
-  --bg: #eef1f3;
-  --surface: #ffffff;
-  --ink: #15191e;
-  --muted: #56616b;
-  --line: #d4dade;
-  --amber: #b85c17;
-  --amber-soft: #f7e6d6;
-  --hud: #0d7480;
-  --hud-soft: #d5ebed;
-  --ok: #2b7a4b;
-  --ok-soft: #dcefe3;
-  --warn: #9a6200;
-  --danger: #b3302a;
-  --danger-soft: #f6dcda;
-  --code-bg: #e4e9ec;
-  /* Kamerabild: in beiden Themes dunkel, wie ein echter Sucher */
-  --vf-bg: #0b0f13;
-  --vf-ink: #e8eef2;
-  --vf-dim: #9fb0bc;
-  --vf-hud: #6fd3da;
-  --vf-amber: #f2a35c;
+  --bg: #02080f;
+  --surface: #061522;
+  --panel: rgba(8, 30, 46, 0.72);
+  --ink: #dff7ff;
+  --muted: #86a9bb;
+  --line: #133447;
+  --line-strong: #1f5a73;
+  --amber: #ffb648;
+  --amber-soft: #2a1c07;
+  --hud: #49e2ff;
+  --hud-soft: #08293a;
+  --ok: #4dffb0;
+  --ok-soft: #0b2c22;
+  --warn: #ffd166;
+  --danger: #ff5d73;
+  --danger-soft: #34101a;
+  --code-bg: #0a1d2b;
+  --glow: rgba(73, 226, 255, 0.35);
+  --ring: rgba(73, 226, 255, 0.26);
+  --ring-strong: rgba(73, 226, 255, 0.62);
+  --grid: rgba(73, 226, 255, 0.045);
+  --scan: rgba(160, 235, 255, 0.035);
+  /* Kamerabild */
+  --vf-bg: #050c13;
+  --vf-ink: #e6f8ff;
+  --vf-dim: #8fb3c4;
+  --vf-hud: #49e2ff;
+  --vf-amber: #ffb648;
   --plate-a: #c9cfd4;
   --plate-b: #9aa3ab;
   --plate-ink: #1d2328;
@@ -45,24 +52,11 @@
   --paper-ink: #2a2723;
   --sign-red: #c0392b;
   --sign-green: #1f7a4a;
-  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Chakra Petch", "Bahnschrift", "Segoe UI", system-ui, sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
-  --radius: 14px;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0e1216; --surface: #151b21; --ink: #e6ebef; --muted: #96a3ae; --line: #26313b;
-    --amber: #f0a15c; --amber-soft: #3a2513; --hud: #62cbd3; --hud-soft: #10313a;
-    --ok: #74d39c; --ok-soft: #12301f; --warn: #e9b752; --danger: #f08178; --danger-soft: #3a1714;
-    --code-bg: #1c242c; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0e1216; --surface: #151b21; --ink: #e6ebef; --muted: #96a3ae; --line: #26313b;
-  --amber: #f0a15c; --amber-soft: #3a2513; --hud: #62cbd3; --hud-soft: #10313a;
-  --ok: #74d39c; --ok-soft: #12301f; --warn: #e9b752; --danger: #f08178; --danger-soft: #3a1714;
-  --code-bg: #1c242c; color-scheme: dark;
+  --font-mono: "Share Tech Mono", "Cascadia Code", Consolas, monospace;
+  --radius: 4px;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -299,6 +293,110 @@ footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
 @media (prefers-reduced-motion: reduce) {
   .rec::before, .caret::after { animation: none; }
 }
+
+/* ── Jarvis-Ebene: Hologramm-HUD ── */
+body {
+  background:
+    radial-gradient(1100px 680px at 72% -12%, rgba(73, 226, 255, 0.11), transparent 62%),
+    radial-gradient(820px 560px at -12% 34%, rgba(40, 120, 255, 0.08), transparent 60%),
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 44px 44px,
+    var(--bg);
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 60;
+  background: repeating-linear-gradient(to bottom, var(--scan) 0 1px, transparent 1px 3px);
+}
+main { overflow-x: clip; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; }
+h2 { letter-spacing: 0.01em; text-shadow: 0 0 22px var(--glow); }
+.hero h1 { font-weight: 700; letter-spacing: -0.01em; text-transform: uppercase; line-height: 1.02; }
+.hero h1 em { color: var(--hud); text-shadow: 0 0 28px var(--glow), 0 0 2px var(--hud); }
+.hud-label { font-family: var(--font-mono); font-size: 0.78rem; font-weight: 400; letter-spacing: 0.16em; display: inline-flex; align-items: center; gap: 10px; }
+.hud-label::before { content: ""; width: 22px; height: 1px; background: currentColor; box-shadow: 0 0 6px currentColor; }
+a { color: var(--hud); }
+code { border-radius: 2px; border: 1px solid var(--line); }
+
+/* Kopfzeile und Statusleiste */
+.lens { border-color: var(--hud); box-shadow: 0 0 12px var(--glow), inset 0 0 8px var(--glow); }
+.lens::after { background: var(--hud); box-shadow: 0 0 10px var(--hud); }
+.brand { letter-spacing: 0.04em; text-transform: uppercase; font-weight: 700; }
+.toplinks a { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.8rem; }
+.toplinks a:hover { color: var(--hud); }
+.sysbar {
+  display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: center;
+  padding-block: 9px; border-block: 1px solid var(--line);
+  font: 400 0.74rem/1.3 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+}
+.sysbar b { color: var(--hud); font-weight: 400; }
+.sysbar .on { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); margin-right: 8px; animation: pulse 2.4s ease-in-out infinite; }
+.sysbar .ver { margin-left: auto; color: var(--hud); }
+
+/* Paneele */
+.fact, .chip, .mode, .bug-filter, .faq details, .node, .feature, .table-wrap, .specs, .bug-list, .copy {
+  background: var(--panel); border-color: var(--line); backdrop-filter: blur(4px);
+}
+.fact { border-radius: 2px; font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.04em; }
+.fact b { color: var(--hud); font-weight: 400; }
+.chip { border-radius: 2px; font-family: var(--font-mono); letter-spacing: 0.04em; }
+.chip[aria-pressed="true"] { background: var(--hud-soft); border-color: var(--hud); box-shadow: 0 0 14px -4px var(--glow); }
+.features { background: var(--line); border-color: var(--line-strong); border-radius: 0;
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px); }
+.feature { background: var(--bg); background-image: linear-gradient(180deg, var(--hud-soft), transparent 70%); }
+.feature h3 { letter-spacing: 0.02em; }
+.node { border-radius: 0; }
+.node:first-child, .node:last-child { border-radius: 0; }
+.link-label { color: var(--amber); }
+.table-wrap, .specs, .bug-list, .faq details { border-radius: 2px; }
+th { background: var(--hud-soft); color: var(--hud); font-family: var(--font-mono); font-weight: 400; }
+.faq summary { font-family: var(--font-display); letter-spacing: 0.02em; }
+.faq details[open] { border-color: var(--line-strong); box-shadow: inset 2px 0 0 var(--hud); }
+.bug-filter strong { font-family: var(--font-display); color: var(--hud); }
+.bug-filter[aria-pressed="true"] { border-color: var(--hud); box-shadow: inset 0 0 0 1px var(--hud), 0 0 16px -6px var(--glow); }
+.mode b { font-family: var(--font-display); letter-spacing: 0.02em; }
+.honest { border: 1px solid #5a4013; border-radius: 2px; }
+
+/* Knöpfe */
+.btn { border-radius: 2px; font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; background: var(--panel); border-color: var(--line-strong); }
+.btn:hover { border-color: var(--hud); color: var(--hud); box-shadow: 0 0 18px -6px var(--glow); }
+.btn.primary { background: var(--hud); border-color: var(--hud); color: var(--bg); box-shadow: 0 0 26px -4px var(--glow); }
+.btn.primary:hover { color: var(--bg); filter: brightness(1.08); }
+
+/* Schritte als HUD-Zähler */
+.steps li::before { background: transparent; color: var(--hud); border: 1px solid var(--hud); border-radius: 2px;
+  font: 400 0.95rem/1 var(--font-mono); box-shadow: inset 0 0 12px var(--glow), 0 0 10px -2px var(--glow); }
+
+/* Sucher in Reaktor-Ringen */
+.viewfinder-wrap { position: relative; isolation: isolate; }
+.viewfinder { border-radius: 22px; box-shadow: 0 0 0 1px var(--line-strong), 0 0 70px -12px var(--glow), 0 40px 80px -40px #000; }
+.reactor { position: absolute; top: 42%; left: 50%; width: min(540px, 132%); aspect-ratio: 1; transform: translate(-50%, -50%); z-index: -1; pointer-events: none; animation: boot 1.6s cubic-bezier(.2, .8, .2, 1) both; }
+.reactor i { position: absolute; inset: 0; border-radius: 50%; }
+.reactor i:nth-child(1) { border: 2px solid transparent; border-top-color: var(--ring-strong); border-right-color: var(--ring-strong); animation: spin 26s linear infinite; }
+.reactor i:nth-child(2) { inset: 5%; background: repeating-conic-gradient(var(--ring) 0 0.8deg, transparent 0.8deg 6deg);
+  -webkit-mask: radial-gradient(circle, transparent 63%, #000 64% 67%, transparent 68%); mask: radial-gradient(circle, transparent 63%, #000 64% 67%, transparent 68%);
+  animation: spin 80s linear infinite reverse; }
+.reactor i:nth-child(3) { inset: 12%; border: 1px dashed var(--ring); animation: spin 48s linear infinite reverse; }
+.reactor i:nth-child(4) { inset: 20%; border: 7px solid transparent; border-left-color: var(--ring); border-bottom-color: var(--ring); animation: spin 18s linear infinite; }
+.reactor i:nth-child(5) { inset: 26%; background: radial-gradient(circle, var(--glow) 0%, transparent 62%); animation: pulse 4.2s ease-in-out infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { opacity: 0.45; } }
+@keyframes boot { from { opacity: 0.35; transform: translate(-50%, -50%) scale(0.86) rotate(-40deg); } }
+.vf-mode { border-radius: 2px; font-family: var(--font-mono); }
+.bubble { border-radius: 4px; border: 1px solid rgba(73, 226, 255, 0.16); }
+.bubble.claude small { color: var(--vf-hud); }
+
+/* App-Bilder mit Leuchtrand */
+.shot img { border-color: var(--line-strong); box-shadow: 0 0 40px -14px var(--glow), 0 24px 50px -28px #000; }
+.dash-shot img { border-color: var(--line-strong); border-radius: 2px; }
+footer { border-top-color: var(--line); font-family: var(--font-mono); letter-spacing: 0.04em; }
+
+@media (max-width: 560px) {
+  .sysbar .ver { margin-left: 0; }
+  .reactor { width: 118%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reactor, .reactor i, .sysbar .on { animation: none !important; }
+}
 </style>
 
 <div class="page">
@@ -313,6 +411,14 @@ footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
       <a href="https://github.com/MoinMornhart/RayBanClaude">GitHub</a>
     </nav>
   </header>
+  <div class="sysbar" aria-label="Systemstatus">
+    <span><span class="on" aria-hidden="true"></span>System <b>bereit</b></span>
+    <span>Brille <b>Ray-Ban Meta Gen 2</b></span>
+    <span>Kamera <b>nur auf Zuruf</b></span>
+    <span>Weckwort <b>„Hey Claude“</b></span>
+    <span>Rechenleistung <b>Claude-Abo</b></span>
+    <span class="ver">v2.0.0</span>
+  </div>
 
   <main id="start">
     <section class="hero">
@@ -338,6 +444,7 @@ footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
       </div>
 
       <div class="viewfinder-wrap">
+        <div class="reactor" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
         <div class="viewfinder" role="img" aria-labelledby="vf-desc">
           <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
           <div class="vf-top"><span class="rec">720p · 15 fps</span><span id="vf-device">Ray-Ban Meta</span><span class="battery"><i></i>82 %</span></div>
