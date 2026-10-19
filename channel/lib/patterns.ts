@@ -108,6 +108,10 @@ export const TAILSCALE_IFACE = /tailscale/i
 // https://regex101.com/?flavor=javascript&regex=%5E%5Ba-km-z%5D%7B5%7D%24&flags=m&testString=tbxkq%0Aabcdl%0AABCDE
 export const PERMISSION_ID = /^[a-km-z]{5}$/
 
+// Uhrzeit im 24-Stunden-Format HH:MM. Passt: "07:30", "23:59", "6:05"; lehnt ab: "24:00", "7.30", "07:60".
+// https://regex101.com/?flavor=javascript&regex=%5E%28%5B01%5D%3F%5Cd%7C2%5B0-3%5D%29%3A%5B0-5%5D%5Cd%24&flags=m&testString=07%3A30%0A23%3A59%0A6%3A05%0A24%3A00%0A7.30%0A07%3A60
+export const CLOCK_TIME = /^([01]?\d|2[0-3]):[0-5]\d$/
+
 // WLAN-Adapter (wird bevorzugt, weil das Handy meist im WLAN hängt). Passt: "WLAN", "Wi-Fi", "en0"; lehnt ab: "Ethernet 2".
 // https://regex101.com/?flavor=javascript&regex=wi-%3Ffi%7Cwlan%7Cwireless%7Cen0&flags=im&testString=WLAN%0AWi-Fi%0Aen0%0AEthernet%202
 export const WIFI_IFACE = /wi-?fi|wlan|wireless|en0/i

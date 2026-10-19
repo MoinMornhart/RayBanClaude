@@ -60,6 +60,10 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
     // MARK: - Registrierung (einmalig, über die Meta-AI-App)
 
     func startMonitoringRegistration() {
+        guard WearablesSupport.isConfigured else {
+            registrationLabel = "Meta-SDK nicht verfügbar"
+            return
+        }
         updateRegistration(wearables.registrationState)
         registrationTask?.cancel()
         registrationTask = Task { [weak self] in
@@ -91,7 +95,7 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
     }
 
     func register() async {
-        guard !isRegistered else { return }
+        guard !isRegistered, WearablesSupport.isConfigured else { return }
         do {
             connectionStatus = .connecting
             try await wearables.startRegistration()
@@ -157,6 +161,10 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
     // MARK: - Ablauf
 
     private func startStreaming() async {
+        guard WearablesSupport.isConfigured else {
+            connectionStatus = .error("Meta-SDK nicht verfügbar – App neu starten")
+            return
+        }
         connectionStatus = .connecting
 
         guard wearables.registrationState == .registered else {

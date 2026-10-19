@@ -31,6 +31,7 @@ final class ClaudeBridge: NSObject, ObservableObject {
     var onCaptureRequest: ((_ id: String, _ reason: String?) -> Void)?
     var onPermissionRequest: ((PermissionRequest) -> Void)?
     var onPermissionResolved: ((String) -> Void)?
+    var onPhoneAction: ((PhoneAction) -> Void)?
     var onServerError: ((String) -> Void)?
     var onConnected: (() -> Void)?
     var onDisconnected: (() -> Void)?
@@ -69,6 +70,7 @@ final class ClaudeBridge: NSObject, ObservableObject {
         switch config.connectionMode {
         case .channel: openWebSocket()
         case .gateway: await connectGateway()
+        case .direct: state = .disconnected // ohne PC – keine Verbindung nötig
         }
     }
 
@@ -191,6 +193,19 @@ final class ClaudeBridge: NSObject, ObservableObject {
             }
         case "permission_resolved":
             if let id = json["request_id"] as? String { onPermissionResolved?(id) }
+        case "phone_action":
+            guard let id = json["id"] as? String,
+                  let kind = (json["action"] as? String).flatMap(PhoneAction.Kind.init(rawValue:)) else { return }
+            onPhoneAction?(PhoneAction(
+                id: id, kind: kind,
+                durationSeconds: json["duration_seconds"] as? Int,
+                time: json["time"] as? String,
+                label: json["label"] as? String,
+                contact: json["contact"] as? String,
+                number: json["number"] as? String,
+                text: json["text"] as? String,
+                destination: json["destination"] as? String
+            ))
         case "error":
             onServerError?(json["message"] as? String ?? "Unbekannter Serverfehler")
         default:
@@ -278,6 +293,11 @@ final class ClaudeBridge: NSObject, ObservableObject {
         if let image = message.image { payload["image"] = image.base64EncodedString() }
         if let reply = message.inReplyTo { payload["in_reply_to"] = reply }
         try await sendJSON(payload)
+    }
+
+    /// Ergebnis einer Handy-Aktion an Claude zurückmelden
+    func sendActionResult(id: String, result: ActionResult) async throws {
+        try await sendJSON(["type": "action_result", "id": id, "ok": result.ok, "message": result.message])
     }
 
     func sendPermission(requestId: String, allow: Bool) async throws {

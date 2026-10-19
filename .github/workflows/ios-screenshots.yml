@@ -1,0 +1,84 @@
+# Startet die App im iOS-Simulator (Demo-Modus mit Beispieldaten) und macht Screenshots.
+# Gleichzeitig ein Rauchtest: Die App muss starten, ohne abzustürzen.
+name: iOS-Screenshots
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios-screenshots.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: Simulator-Screenshots
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Xcode wählen
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: latest-stable
+
+      - name: XcodeGen installieren und Projekt erzeugen
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+
+      - name: Für den Simulator bauen
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project RayBanClaude.xcodeproj -scheme RayBanClaude -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build.log
+
+      - name: Simulator starten
+        run: |
+          UDID=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | test("^iPhone [0-9]+ Pro$"))] | last | .udid')
+          echo "Simulator: $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance dark
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
+          xcrun simctl install "$UDID" ios/build/Build/Products/Debug-iphonesimulator/RayBanClaude.app
+
+      - name: Screenshots aufnehmen
+        run: |
+          mkdir -p screenshots
+          shoot() {
+            xcrun simctl terminate "$UDID" com.raybanclaude.app 2>/dev/null || true
+            xcrun simctl launch "$UDID" com.raybanclaude.app -demo "$@"
+            sleep 8
+            xcrun simctl io "$UDID" screenshot "screenshots/$NAME.png"
+            # Rauchtest: läuft die App noch?
+            xcrun simctl spawn "$UDID" launchctl list | grep -q "com.raybanclaude.app" || { echo "App ist abgestürzt ($NAME)"; exit 1; }
+          }
+          NAME=1-gespraech shoot
+          NAME=2-anruf-rueckfrage shoot -demoConfirm
+          NAME=3-einstellungen shoot -demoSettings
+          ls -la screenshots
+
+      - name: Absturzberichte
+        if: failure()
+        run: ls -la ~/Library/Logs/DiagnosticReports/ 2>/dev/null | tail -20 || true
+
+      - name: Screenshots hochladen
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-screenshots
+          path: screenshots/
+          retention-days: 30

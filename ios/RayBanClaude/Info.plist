@@ -28,6 +28,8 @@
 	<string>RayBan Claude braucht das Mikrofon, damit du per Sprache mit Claude reden kannst.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>RayBan Claude wandelt deine Sprache auf dem iPhone in Text um.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Damit „Ruf Mama an“ funktioniert, sucht RayBan Claude den Namen in deinen Kontakten – nur auf dem iPhone, Nummern gehen nicht an Claude.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>RayBan Claude verbindet sich mit deinem PC im lokalen WLAN und mit deiner Ray-Ban Meta.</string>
 	<key>NSBonjourServices</key>

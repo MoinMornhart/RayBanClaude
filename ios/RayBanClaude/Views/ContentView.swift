@@ -32,10 +32,14 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 topBar.padding(.horizontal, 16).padding(.top, 4)
                 modeSelector.padding(.top, 6)
+                if !viewModel.phoneActions.timers.isEmpty {
+                    TimersBar(timers: viewModel.phoneActions.timers) { viewModel.phoneActions.cancel($0) }
+                        .padding(.top, 6)
+                }
                 if showQuickActions {
                     quickActionBar.padding(.top, 6).transition(.opacity)
                 }
-                if !viewModel.config.isConfigured {
+                if !viewModel.config.isConfigured && !viewModel.config.hasDirectKey {
                     pairingHint.padding(.horizontal, 16).padding(.top, 12)
                 }
 
@@ -49,6 +53,13 @@ struct ContentView: View {
                 }
                 if !viewModel.currentTranscription.isEmpty {
                     liveTranscriptionBanner.padding(.horizontal, 16).padding(.top, 8)
+                }
+                if let confirmation = viewModel.phoneActions.confirmation {
+                    ActionConfirmationCard(confirmation: confirmation,
+                                           onSelect: { viewModel.confirmAction($0) },
+                                           onCancel: { viewModel.dismissAction() })
+                        .padding(.horizontal, 16).padding(.top, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 if let request = viewModel.pendingPermission {
                     PermissionCard(request: request) { allow in
@@ -70,6 +81,14 @@ struct ContentView: View {
                 bottomControls.padding(.vertical, 8)
             }
         }
+        .sheet(item: Binding(
+            get: { viewModel.phoneActions.messageDraft },
+            set: { viewModel.phoneActions.messageDraft = $0 }
+        )) { draft in
+            MessageComposeView(draft: draft) { viewModel.phoneActions.messageDraft = nil }
+                .ignoresSafeArea()
+        }
+        .onAppear { if DemoMode.showSettings { showSettings = true } }
         .sheet(isPresented: $showSettings) {
             SettingsView(viewModel: viewModel, rayBanManager: viewModel.rayBanManager, modeManager: viewModel.modeManager)
         }
@@ -96,7 +115,7 @@ struct ContentView: View {
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .task {
-            guard !hasRequestedPermissions else { return }
+            guard !hasRequestedPermissions, !DemoMode.isActive else { return }
             hasRequestedPermissions = true
             if await viewModel.speechManager.requestAuthorization() {
                 await viewModel.connect()
@@ -110,13 +129,15 @@ struct ContentView: View {
 
     @ViewBuilder
     private var cameraLayer: some View {
-        if viewModel.activeFrameSource == .iPhone {
+        if DemoMode.isActive {
+            DemoSceneView()
+        } else if viewModel.activeFrameSource == .iPhone {
             CameraPreviewView(session: viewModel.cameraManager.captureSession)
         } else {
             RayBanLayer(
                 rayBanManager: viewModel.rayBanManager,
                 status: viewModel.frameSourceStatus,
-                isConnected: viewModel.isConnected
+                isConnected: viewModel.canTalk
             )
         }
     }
@@ -194,10 +215,12 @@ struct ContentView: View {
         HStack(spacing: 10) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(viewModel.isConnected ? .green : .red)
+                    .fill(routeColor)
                     .frame(width: 8, height: 8)
-                Image(systemName: viewModel.config.connectionMode == .channel ? "bolt.fill" : "globe")
+                Image(systemName: routeIcon)
                     .font(.system(size: 11, weight: .medium))
+                Text(routeLabel)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                 Image(systemName: viewModel.activeFrameSource.icon)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(frameSourceColor)
@@ -209,7 +232,7 @@ struct ContentView: View {
             .padding(.vertical, 8)
             .background(.ultraThinMaterial, in: Capsule())
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(viewModel.isConnected ? "Mit PC verbunden" : "Nicht verbunden")
+            .accessibilityLabel(routeAccessibility)
 
             HStack(spacing: 5) {
                 stateIcon.font(.system(size: 11, weight: .medium)).foregroundStyle(stateColor)
@@ -359,7 +382,7 @@ struct ContentView: View {
                 haptic(viewModel.state == .speaking ? .rigid : .medium)
                 if viewModel.state == .speaking {
                     viewModel.interruptSpeaking()
-                } else if viewModel.isConnected {
+                } else if viewModel.canTalk {
                     viewModel.toggleListening()
                 } else {
                     Task { await viewModel.connect() }
@@ -423,6 +446,7 @@ struct ContentView: View {
         switch viewModel.state {
         case .disconnected: Image(systemName: "wifi.slash")
         case .idle: Image(systemName: "checkmark")
+        case .standby: Image(systemName: "ear")
         case .listening: Image(systemName: "waveform")
         case .thinking: Image(systemName: "brain")
         case .speaking: Image(systemName: "speaker.wave.2.fill")
@@ -433,6 +457,7 @@ struct ContentView: View {
         switch viewModel.state {
         case .disconnected: return .red
         case .idle: return .green
+        case .standby: return .mint
         case .listening: return .anthropicOrange
         case .thinking: return .yellow
         case .speaking: return .blue
@@ -444,7 +469,7 @@ struct ContentView: View {
         case .listening: return .red
         case .thinking: return .anthropicOrange
         case .speaking: return .blue
-        default: return viewModel.isConnected ? .anthropicOrange : .gray
+        default: return viewModel.canTalk ? .anthropicOrange : .gray
         }
     }
 
@@ -454,7 +479,7 @@ struct ContentView: View {
         case .thinking: return "ellipsis"
         case .speaking: return "stop.fill"
         case .disconnected: return "wifi.slash"
-        case .idle: return "mic"
+        case .idle, .standby: return "mic"
         }
     }
 
@@ -462,8 +487,41 @@ struct ContentView: View {
         switch viewModel.state {
         case .listening: return "Zuhören beenden"
         case .speaking: return "Sprechen unterbrechen"
-        case .disconnected: return "Mit PC verbinden"
+        case .disconnected: return "Verbinden"
+        case .standby: return "Sprechen – oder einfach „Hey Claude“ sagen"
         default: return "Sprechen"
+        }
+    }
+
+    private var routeColor: Color {
+        switch viewModel.route {
+        case .pc: return .green
+        case .direct: return .orange
+        case .none: return .red
+        }
+    }
+
+    private var routeIcon: String {
+        switch viewModel.route {
+        case .pc: return "desktopcomputer"
+        case .direct: return "antenna.radiowaves.left.and.right"
+        case .none: return "wifi.slash"
+        }
+    }
+
+    private var routeLabel: String {
+        switch viewModel.route {
+        case .pc: return "PC"
+        case .direct: return "Direkt"
+        case .none: return "Offline"
+        }
+    }
+
+    private var routeAccessibility: String {
+        switch viewModel.route {
+        case .pc: return "Mit dem PC verbunden"
+        case .direct: return "Ohne PC, direkt mit Claude verbunden"
+        case .none: return "Nicht verbunden"
         }
     }
 
@@ -605,5 +663,95 @@ struct RayBanVideoView: UIViewRepresentable {
     /// der pro Bildschirm-Frame eine Task erzeugte).
     func updateUIView(_ uiView: UIImageView, context: Context) {
         uiView.image = rayBanManager.latestImage
+    }
+}
+
+
+// MARK: - Laufende Timer
+
+struct TimersBar: View {
+    let timers: [RunningTimer]
+    let onCancel: (RunningTimer) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(timers) { timer in
+                    Button { onCancel(timer) } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: timer.isAlarm ? "alarm.fill" : "timer")
+                            Text(timer.label).lineLimit(1)
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                Text(Self.remaining(until: timer.fireDate, now: context.date, isAlarm: timer.isAlarm))
+                                    .monospacedDigit()
+                            }
+                            Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).opacity(0.6)
+                        }
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.35), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(timer.isAlarm ? "Wecker" : "Timer") \(timer.label), tippen zum Löschen")
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    static func remaining(until date: Date, now: Date, isAlarm: Bool) -> String {
+        if isAlarm {
+            return date.formatted(date: .omitted, time: .shortened)
+        }
+        let seconds = max(0, Int(date.timeIntervalSince(now)))
+        return seconds >= 3600
+            ? String(format: "%d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+            : String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+// MARK: - Rückfrage vor Anruf, Nachricht, Navigation
+
+struct ActionConfirmationCard: View {
+    let confirmation: ActionConfirmation
+    let onSelect: (ActionConfirmation.Option) -> Void
+    let onCancel: () -> Void
+
+    private var icon: String {
+        switch confirmation.kind {
+        case .call: return "phone.fill"
+        case .message: return "message.fill"
+        case .navigate: return "map.fill"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(confirmation.title, systemImage: icon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.green)
+            if case .message(let text) = confirmation.kind {
+                Text("„\(text)“").font(.caption).lineLimit(3)
+            }
+            ForEach(confirmation.options) { option in
+                Button { onSelect(option) } label: {
+                    Label(option.label, systemImage: icon).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+            }
+            Button(role: .cancel, action: onCancel) {
+                Text("Abbrechen").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            if confirmation.options.count == 1 {
+                Text("Oder einfach „Ja“ bzw. „Nein“ sagen.").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.green.opacity(0.6)))
     }
 }

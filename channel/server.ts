@@ -31,6 +31,8 @@ import {
   cleanId, cleanModeName, cleanSource, cleanText, HttpError, isValidId, parsePort, requireImage,
 } from './lib/validate.ts'
 import type { Source } from './lib/validate.ts'
+import { buildPhoneAction, PHONE_ACTION_TOOL } from './lib/phone-actions.ts'
+import type { PhoneActionPayload } from './lib/phone-actions.ts'
 
 // ── Pfade & Plattform ───────────────────────────────────────────────────────
 const STATE_DIR = join(homedir(), '.claude', 'channels', C.SERVER_NAME)
@@ -210,6 +212,7 @@ type WireOut =
   | { readonly type: 'capture_request'; readonly id: string; readonly reason?: string }
   | { readonly type: 'permission_request'; readonly request_id: string; readonly tool_name: string; readonly description: string; readonly input_preview: string }
   | { readonly type: 'permission_resolved'; readonly request_id: string; readonly behavior: Verdict }
+  | ({ readonly type: 'phone_action'; readonly id: string } & PhoneActionPayload)
   | { readonly type: 'error'; readonly message: string }
 
 interface WsData { readonly ip: string }
@@ -237,6 +240,8 @@ const clients = new Set<Socket>()
 const activityLog: ActivityEntry[] = []
 const pendingCaptures = new Map<string, number>()     // request_id → Zeitstempel
 const pendingPermissions = new Map<string, number>()  // request_id → Zeitstempel
+/** Wartende Handy-Aktionen: id → Funktion, die das Ergebnis der App an das Tool übergibt */
+const pendingActions = new Map<string, (result: string) => void>()
 const session = { seq: 0, lastMode: '' }
 
 const ID_RADIX = 36 // kompakte Zeitstempel: Ziffern + Kleinbuchstaben
@@ -353,6 +358,12 @@ const INSTRUCTIONS = [
   '- Answer in the language the user speaks (usually German). The answer is read aloud: 1–3 short sentences,',
   '  no Markdown, no lists, no emojis, unless the user asks for detail.',
   '- Before risky actions (sending messages or emails, purchases, deleting) ask the user via reply and wait for a yes.',
+  '',
+  'PHONE:',
+  '- For timers, alarms, phone calls, text messages and navigation use phone_action – it runs on the user\'s iPhone.',
+  '  Example: "Stell einen Timer auf 10 Minuten für die Nudeln" → phone_action {action:"timer", duration_seconds:600, label:"Nudeln"},',
+  '  then confirm briefly via reply ("Timer für die Nudeln läuft, zehn Minuten.").',
+  '- Calls, messages and navigation are confirmed by the user on the phone; the tool result tells you what happened.',
 ].join('\n')
 
 const mcp = new Server(
@@ -403,6 +414,7 @@ const TOOLS = [
       },
     },
   },
+  PHONE_ACTION_TOOL,
 ] as const
 
 type ToolResult = CallToolResult
@@ -450,6 +462,21 @@ const TOOL_HANDLERS: Readonly<Record<string, (args: ToolArgs) => Promise<ToolRes
     logActivity({ direction: 'out', source: 'claude', text: `📸 Foto angefordert${reason ? `: ${reason}` : ''}` })
     return textResult(`Foto angefordert (request_id ${id}). Es kommt als neue Channel-Nachricht.`)
   },
+
+  async phone_action(args) {
+    const payload = buildPhoneAction(args)
+    requireClients()
+    const id = nextId()
+    const outcome = new Promise<string>(resolve => {
+      pendingActions.set(id, resolve)
+      setTimeout(() => {
+        if (pendingActions.delete(id)) resolve('Keine Rückmeldung vom iPhone – ist die App im Vordergrund?')
+      }, C.PHONE_ACTION_TIMEOUT_MS).unref()
+    })
+    broadcast({ type: 'phone_action', id, ...payload })
+    logActivity({ direction: 'out', source: 'claude', text: `📱 ${payload.action}${payload.label ? `: ${payload.label}` : ''}` })
+    return textResult(await outcome)
+  },
 }
 
 mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [...TOOLS] }))
@@ -495,6 +522,17 @@ mcp.fallbackNotificationHandler = async (n: Notification): Promise<void> => {
   })
   logActivity({ direction: 'out', source: 'freigabe', text: `🔐 ${toolName} wartet auf Freigabe (${requestId})` })
   log(`🔐 Freigabe ${requestId} für ${toolName} an ${sent} App(s) weitergeleitet`)
+}
+
+/** Ergebnis einer Handy-Aktion von der App an das wartende Tool weitergeben. */
+function resolveAction(rawId: unknown, rawOk: unknown, rawMessage: unknown): void {
+  const resolve = typeof rawId === 'string' ? pendingActions.get(rawId) : undefined
+  if (!resolve || typeof rawId !== 'string') throw new HttpError(C.HTTP_BAD_REQUEST, 'Unbekannte oder abgelaufene Aktion')
+  pendingActions.delete(rawId)
+  const message = cleanText(rawMessage, C.MAX_ACTION_RESULT_CHARS) || 'ohne Details'
+  const status = rawOk === true ? 'erledigt' : 'nicht ausgeführt'
+  resolve(`iPhone: ${status} – ${message}`)
+  logActivity({ direction: 'in', source: 'iphone', text: `📱 ${status}: ${message}` })
 }
 
 function resolvePermission(rawId: unknown, rawVerdict: unknown): void {
@@ -797,6 +835,7 @@ function wsChatMessage(_ws: Socket, m: Readonly<Record<string, unknown>>): void 
 const WS_HANDLERS: Readonly<Record<string, WsHandler>> = {
   message: wsChatMessage,
   permission: (_ws, m) => resolvePermission(m.request_id, m.behavior),
+  action_result: (_ws, m) => resolveAction(m.id, m.ok, m.message),
   ping: () => undefined,
 }
 const DEFAULT_WS_TYPE = 'message'

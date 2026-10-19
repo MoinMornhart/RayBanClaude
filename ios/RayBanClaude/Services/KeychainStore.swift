@@ -9,6 +9,7 @@ enum KeychainStore {
     enum Key: String {
         case channelToken
         case elevenLabsAPIKey
+        case anthropicAPIKey
     }
 
     static func get(_ key: Key) -> String {

@@ -105,18 +105,31 @@ final class AudioDataPlayer: NSObject, AVAudioPlayerDelegate {
 
 // MARK: - Spracheingabe und -ausgabe
 
+/// Zuhör-Modus: Bereitschaft (wartet auf „Hey Claude“/„Claudi“) oder Befehl (nimmt den Satz auf).
+enum ListenMode: Equatable {
+    case standby
+    case command
+}
+
 @MainActor
 final class SpeechManager: NSObject, ObservableObject {
     @Published private(set) var transcribedText: String = ""
-    @Published private(set) var isListening: Bool = false
+    @Published private(set) var listenMode: ListenMode?
     @Published private(set) var isSpeaking: Bool = false
 
-    /// Erkannter Satz nach einer Sprechpause
+    var isListening: Bool { listenMode != nil }
+
+    /// Erkannter Befehl nach einer Sprechpause
     var onSpeechPause: ((String) -> Void)?
+    /// Weckwort erkannt – jetzt wird der Befehl aufgenommen
+    var onWakeWord: (() -> Void)?
     /// Sprachausgabe natürlich beendet (nicht bei Abbruch)
     var onSpeechFinished: (() -> Void)?
-    /// Zuhören wurde vom System beendet (Fehler, Zeitlimit)
+    /// Befehls-Zuhören endete ohne Befehl (Fehler, Zeitlimit, nichts gesagt)
     var onListeningStopped: ((String?) -> Void)?
+
+    /// Weckwort aktiv? Dann wird nach jedem Befehl wieder in Bereitschaft gewechselt.
+    var wakeWordEnabled = false
 
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -129,8 +142,20 @@ final class SpeechManager: NSObject, ObservableObject {
     private let appleSynthesizer = AVSpeechSynthesizer()
 
     private var silenceTimer: Timer?
+    private var noSpeechTimer: Timer?
+    private var standbyRefreshTimer: Timer?
     private var pauseThreshold: TimeInterval = 1.5
     private var pauseHandled = false
+    /// Befehl kam über das Weckwort → nur der Teil danach zählt
+    private var viaWakeWord = false
+    /// Jede Erkennungs-Sitzung bekommt eine Nummer – Rückmeldungen alter Sitzungen werden ignoriert
+    private var generation = 0
+    private var standbyRetries = 0
+
+    /// Bereitschaft regelmäßig neu starten (Apple begrenzt eine Erkennung auf etwa eine Minute)
+    private let standbyRefreshInterval: TimeInterval = 50
+    /// Nach dem Weckwort so lange auf den Befehl warten
+    private let wakeCommandTimeout: TimeInterval = 7
 
     override init() {
         super.init()
@@ -165,7 +190,21 @@ final class SpeechManager: NSObject, ObservableObject {
 
     // MARK: Zuhören (Apple-Spracherkennung, wenn möglich auf dem Gerät)
 
-    func startListening() throws {
+    /// Wartet auf das Weckwort. Ohne Weckwort-Einstellung wird nur gestoppt.
+    func enterStandby() {
+        guard wakeWordEnabled, !isSpeaking else {
+            stopListening()
+            return
+        }
+        do {
+            try startListening(mode: .standby)
+        } catch {
+            scheduleStandbyRestart()
+        }
+    }
+
+    /// - Parameter noSpeechTimeout: Kommt in dieser Zeit kein Wort, endet das Zuhören (z. B. nach einer Antwort).
+    func startListening(mode: ListenMode = .command, noSpeechTimeout: TimeInterval? = nil) throws {
         if isSpeaking { stopSpeaking() }
         stopListening()
 
@@ -177,6 +216,7 @@ final class SpeechManager: NSObject, ObservableObject {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.addsPunctuation = true
+        request.contextualStrings = WakeWord.contextualStrings
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true // Datenschutz: Sprache verlässt das iPhone nicht
         }
@@ -194,56 +234,135 @@ final class SpeechManager: NSObject, ObservableObject {
         audioEngine.prepare()
         try audioEngine.start()
 
+        generation += 1
+        let session = generation
         pauseHandled = false
+        viaWakeWord = false
         transcribedText = ""
-        isListening = true
+        listenMode = mode
+
+        if mode == .standby {
+            standbyRefreshTimer = Timer.scheduledTimer(withTimeInterval: standbyRefreshInterval, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.generation == session, self.listenMode == .standby else { return }
+                    self.enterStandby()
+                }
+            }
+        } else if let noSpeechTimeout {
+            startNoSpeechTimer(noSpeechTimeout, session: session)
+        }
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
             let failed = error != nil
             Task { @MainActor [weak self] in
-                guard let self, self.isListening else { return }
-                if let text {
-                    self.transcribedText = text
-                    self.resetSilenceTimer()
-                    if isFinal { self.handlePause() }
-                }
-                if failed && !self.pauseHandled {
-                    self.stopListening()
-                    self.onListeningStopped?(self.transcribedText.isEmpty ? nil : self.transcribedText)
-                }
+                guard let self, self.generation == session, self.listenMode != nil else { return }
+                if let text { self.handleTranscript(text, isFinal: isFinal) }
+                if failed && !self.pauseHandled { self.handleRecognitionEnd() }
             }
         }
     }
 
     func stopListening() {
+        generation += 1 // laufende Rückmeldungen verwerfen
         silenceTimer?.invalidate()
         silenceTimer = nil
+        noSpeechTimer?.invalidate()
+        noSpeechTimer = nil
+        standbyRefreshTimer?.invalidate()
+        standbyRefreshTimer = nil
         if audioEngine.isRunning { audioEngine.stop() }
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
-        isListening = false
+        listenMode = nil
+        transcribedText = ""
+    }
+
+    private func handleTranscript(_ text: String, isFinal: Bool) {
+        switch listenMode {
+        case .standby:
+            standbyRetries = 0
+            // In Bereitschaft wird nichts angezeigt – nur auf das Weckwort geachtet
+            guard let command = WakeWord.command(in: text) else { return }
+            listenMode = .command
+            viaWakeWord = true
+            standbyRefreshTimer?.invalidate()
+            standbyRefreshTimer = nil
+            Chime.shared.play()
+            onWakeWord?()
+            transcribedText = command
+            if command.isEmpty {
+                startNoSpeechTimer(wakeCommandTimeout, session: generation)
+            } else {
+                resetSilenceTimer()
+            }
+        case .command:
+            noSpeechTimer?.invalidate()
+            noSpeechTimer = nil
+            transcribedText = viaWakeWord ? (WakeWord.command(in: text) ?? text) : text
+            guard !transcribedText.isEmpty else { return }
+            resetSilenceTimer()
+            if isFinal { handlePause() }
+        case nil:
+            break
+        }
+    }
+
+    /// Erkennung beendet (Fehler, Stille, Zeitlimit von Apple)
+    private func handleRecognitionEnd() {
+        if listenMode == .standby {
+            scheduleStandbyRestart()
+            return
+        }
+        let heard = transcribedText
+        stopListening()
+        onListeningStopped?(heard.isEmpty ? nil : heard)
+    }
+
+    /// Neustart der Bereitschaft mit wachsender Pause, falls die Erkennung wiederholt scheitert
+    private func scheduleStandbyRestart() {
+        stopListening()
+        standbyRetries += 1
+        let delay = min(0.3 * Double(standbyRetries), 5.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.listenMode == nil, !self.isSpeaking, self.wakeWordEnabled else { return }
+            self.enterStandby()
+        }
+    }
+
+    private func startNoSpeechTimer(_ timeout: TimeInterval, session: Int) {
+        noSpeechTimer?.invalidate()
+        noSpeechTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.generation == session, self.transcribedText.isEmpty else { return }
+                self.stopListening()
+                self.onListeningStopped?(nil)
+            }
+        }
     }
 
     private func resetSilenceTimer() {
         silenceTimer?.invalidate()
+        let session = generation
         silenceTimer = Timer.scheduledTimer(withTimeInterval: pauseThreshold, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.handlePause() }
+            Task { @MainActor in
+                guard let self, self.generation == session else { return }
+                self.handlePause()
+            }
         }
     }
 
     /// Pause oder Endergebnis – wird pro Äußerung nur EINMAL weitergegeben (früher teils doppelt).
     private func handlePause() {
-        guard !pauseHandled else { return }
+        guard !pauseHandled, listenMode == .command else { return }
         let text = transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         pauseHandled = true
         stopListening()
-        transcribedText = ""
         onSpeechPause?(text)
     }
 

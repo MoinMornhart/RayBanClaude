@@ -6,9 +6,20 @@ import MWDATCore
 enum SessionState: String {
     case disconnected = "Getrennt"
     case idle = "Bereit"
+    case standby = "Sag „Hey Claude“"
     case listening = "Hört zu"
     case thinking = "Denkt nach"
     case speaking = "Spricht"
+}
+
+/// Über welchen Weg eine Frage gerade an Claude geht
+enum Route: Equatable {
+    /// PC: Claude Code (Channel) oder Gateway
+    case pc
+    /// Ohne PC: direkt an die Claude-API
+    case direct
+    /// Weder PC erreichbar noch API-Key vorhanden
+    case none
 }
 
 @MainActor
@@ -26,6 +37,7 @@ final class SessionViewModel: ObservableObject {
             guard config != oldValue else { return }
             applyConfig()
             config.save()
+            if config.wakeWordEnabled != oldValue.wakeWordEnabled, state == .idle || state == .standby { goIdle() }
         }
     }
 
@@ -46,15 +58,21 @@ final class SessionViewModel: ObservableObject {
     let speechManager = SpeechManager()
     let cameraManager = CameraManager()
     let rayBanManager = RayBanManager()
+    let phoneActions = PhoneActionHandler()
+    let directClient = DirectClaudeClient()
 
     private var cancellables = Set<AnyCancellable>()
     private var watchdog: Task<Void, Never>?
     private var lastGatewayMode: String?
+    /// Weg der Frage, die gerade bearbeitet wird
+    private var processingRoute: Route = .none
 
     /// Ohne Zustellbestätigung gilt eine Nachricht nach dieser Zeit als verloren
     private let ackTimeout: UInt64 = 10_000_000_000
     /// Ohne Antwort von Claude wird „Denkt nach“ nach dieser Zeit beendet
     private let replyTimeout: UInt64 = 180_000_000_000
+    /// Nach einer Antwort so lange auf eine Rückfrage warten, dann wieder aufs Weckwort
+    private let followUpTimeout: TimeInterval = 8
 
     init(config: ClaudeConfig = ClaudeConfig.load()) {
         self.config = config
@@ -63,7 +81,36 @@ final class SessionViewModel: ObservableObject {
         setupBindings()
         setupBridgeCallbacks()
         setupSpeechCallbacks()
-        rayBanManager.startMonitoringRegistration()
+        setupPhoneActions()
+        if DemoMode.isActive {
+            loadDemo()
+        } else {
+            rayBanManager.startMonitoringRegistration()
+        }
+    }
+
+    /// Beispielgespräch für Screenshots (`-demo`): nichts wird gestartet oder gesendet
+    private func loadDemo() {
+        activeFrameSource = .rayBan
+        isConnected = true
+        frameSourceStatus = .connected
+        modeManager.setActiveMode(VisionMode.hvac)
+        transcript = [
+            TranscriptMessage(role: .user, text: "Wie alt ist die Therme und was heißt F28?"),
+            TranscriptMessage(role: .assistant, text: "Eine Thermavia CondensPro 24 von 2014, also gut zwölf Jahre alt. F28 bedeutet: Zündung fehlgeschlagen – prüf zuerst, ob der Gashahn offen ist."),
+            TranscriptMessage(role: .user, text: "Stell einen Timer auf zehn Minuten für die Nudeln."),
+            TranscriptMessage(role: .system, text: "📱 Timer „Nudeln“ für 10 Min gestellt"),
+            TranscriptMessage(role: .assistant, text: "Läuft – in zehn Minuten sag ich Bescheid."),
+        ]
+        var confirmation: ActionConfirmation?
+        if DemoMode.showConfirmation {
+            transcript.append(TranscriptMessage(role: .user, text: "Ruf Mama an."))
+            transcript.append(TranscriptMessage(role: .system, text: "📱 Rückfrage auf dem iPhone: Anruf an Mama (Mobil)"))
+            confirmation = ActionConfirmation(kind: .call, title: "Anruf an Mama?",
+                                              options: [.init(label: "Mama (Mobil)", value: "+490000000000")])
+        }
+        phoneActions.showDemo(timerLabel: "Nudeln", seconds: 9 * 60 + 41, confirmation: confirmation)
+        state = .standby
     }
 
     // MARK: - Einrichtung
@@ -73,17 +120,17 @@ final class SessionViewModel: ObservableObject {
         speechManager.setLanguage(config.speechLanguage)
         speechManager.setPauseThreshold(config.speechPauseThreshold)
         speechManager.configureElevenLabs(apiKey: config.elevenLabsAPIKey, voiceId: config.elevenLabsVoiceId)
+        speechManager.wakeWordEnabled = config.wakeWordEnabled
         cameraManager.configure(frameInterval: config.videoFrameInterval, jpegQuality: config.videoJPEGQuality)
         rayBanManager.configure(frameInterval: config.videoFrameInterval, jpegQuality: config.videoJPEGQuality)
     }
 
     private func setupBindings() {
-        // Modus-Änderungen an die Oberfläche weiterreichen (früher aktualisierte sich die
-        // Modus-Auswahl nicht). Die Brille wird bewusst NICHT weitergereicht – sonst würde
-        // jedes Videobild die ganze Oberfläche neu berechnen; dafür gibt es eigene Teilansichten.
-        modeManager.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &cancellables)
+        // Modus- und Aktions-Änderungen an die Oberfläche weiterreichen. Die Brille wird bewusst
+        // NICHT weitergereicht – sonst würde jedes Videobild die ganze Oberfläche neu berechnen.
+        [modeManager.objectWillChange, phoneActions.objectWillChange].forEach { publisher in
+            publisher.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
+        }
 
         bridge.$state
             .sink { [weak self] state in self?.bridgeStateChanged(state) }
@@ -119,6 +166,11 @@ final class SessionViewModel: ObservableObject {
                 if self?.isConnected == true { self?.state = .idle }
             }
             .store(in: &cancellables)
+
+        // Nach einem Anruf o. Ä. wieder aufs Weckwort hören
+        NotificationCenter.default.publisher(for: .audioInterruptionEnded)
+            .sink { [weak self] _ in self?.goIdle() }
+            .store(in: &cancellables)
     }
 
     private func bridgeStateChanged(_ bridgeState: ClaudeBridge.ConnectionState) {
@@ -127,12 +179,18 @@ final class SessionViewModel: ObservableObject {
         case .connected:
             errorMessage = nil
         case .failed(let message):
-            errorMessage = message
+            if route == .direct {
+                notice = "PC nicht erreichbar – ich frage direkt"
+            } else {
+                errorMessage = message
+            }
             fallthrough
         case .disconnected, .connecting:
-            finishProcessing()
+            if processingRoute == .pc { finishProcessing() }
             pendingPermission = nil
-            if state != .disconnected {
+            if route == .direct {
+                activateDirect()
+            } else if state != .disconnected {
                 speechManager.stopListening()
                 state = .disconnected
             }
@@ -142,9 +200,9 @@ final class SessionViewModel: ObservableObject {
     private func setupBridgeCallbacks() {
         bridge.onConnected = { [weak self] in
             guard let self else { return }
-            self.state = .idle
             try? AudioSessionManager.shared.configureForVoiceChat()
             self.startActiveFrameSource()
+            self.goIdle()
         }
         bridge.onReply = { [weak self] reply in self?.handleReply(reply) }
         bridge.onEdit = { [weak self] id, text in
@@ -163,6 +221,9 @@ final class SessionViewModel: ObservableObject {
         bridge.onPermissionResolved = { [weak self] id in
             if self?.pendingPermission?.id == id { self?.pendingPermission = nil }
         }
+        bridge.onPhoneAction = { [weak self] action in
+            Task { await self?.handlePhoneAction(action) }
+        }
         bridge.onServerError = { [weak self] message in
             self?.errorMessage = message
             self?.finishProcessing()
@@ -173,27 +234,83 @@ final class SessionViewModel: ObservableObject {
         speechManager.onSpeechPause = { [weak self] text in
             Task { await self?.handleUserSpeech(text) }
         }
+        speechManager.onWakeWord = { [weak self] in
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            self?.state = .listening
+        }
         speechManager.onSpeechFinished = { [weak self] in
             guard let self, self.state == .speaking else { return }
-            self.state = self.isConnected ? .idle : .disconnected
-            if self.config.autoListen && self.isConnected { self.startListening() }
+            if self.config.autoListen && self.isConnected {
+                // Kurz auf eine Rückfrage warten – mit Weckwort danach wieder in Bereitschaft
+                self.startListening(noSpeechTimeout: self.config.wakeWordEnabled ? self.followUpTimeout : nil)
+            } else {
+                self.goIdle()
+            }
         }
-        // Erkennung vom System beendet → Zustand nicht mehr fälschlich auf „Hört zu“
+        // Zuhören ohne Befehl beendet (Stille, Fehler) → zurück in Bereitschaft
         speechManager.onListeningStopped = { [weak self] _ in
             guard let self, self.state == .listening else { return }
-            self.state = self.isConnected ? .idle : .disconnected
+            self.goIdle()
         }
+    }
+
+    private func setupPhoneActions() {
+        phoneActions.onTimerFired = { [weak self] timer in
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            let text = timer.isAlarm ? "Wecker: \(timer.label)." : "Dein Timer \(timer.label) ist abgelaufen."
+            self?.transcript.append(TranscriptMessage(role: .system, text: "⏱ \(text)"))
+            self?.speak(text, audioPath: nil)
+        }
+    }
+
+    /// PC verbunden → PC; sonst (wenn erlaubt und API-Key da) direkt; sonst nichts
+    var route: Route {
+        if config.connectionMode == .direct { return config.hasDirectKey ? .direct : .none }
+        if isConnected { return .pc }
+        return config.directFallback && config.hasDirectKey ? .direct : .none
+    }
+
+    /// Kann gerade gefragt werden (PC oder direkt)?
+    var canTalk: Bool { route != .none }
+
+    /// Ruhezustand ohne laufende Aufnahme: mit Weckwort „Sag Hey Claude“, sonst „Bereit“
+    private var restingState: SessionState {
+        guard canTalk else { return .disconnected }
+        return config.wakeWordEnabled ? .standby : .idle
+    }
+
+    /// Zurück in den Ruhezustand – mit Weckwort hört die App wieder auf „Hey Claude“.
+    func goIdle() {
+        guard !speechManager.isSpeaking else { return }
+        if canTalk && config.wakeWordEnabled {
+            speechManager.enterStandby()
+        } else {
+            speechManager.stopListening()
+        }
+        state = isProcessing ? .thinking : restingState
     }
 
     // MARK: - Verbindung
 
     func connect() async {
         errorMessage = nil
-        guard config.baseURL != nil, !config.channelToken.isEmpty else {
-            errorMessage = "Noch nicht gekoppelt – QR-Code im PC-Dashboard mit der iPhone-Kamera scannen"
-            return
+        if config.connectionMode.usesPC {
+            if config.baseURL != nil, !config.channelToken.isEmpty {
+                await bridge.connect()
+            } else if !config.hasDirectKey {
+                errorMessage = "Noch nicht gekoppelt – QR-Code im PC-Dashboard scannen oder in den Einstellungen „Ohne PC“ einrichten"
+            }
         }
-        await bridge.connect()
+        if route == .direct { activateDirect() }
+        if route == .none && config.connectionMode == .direct {
+            errorMessage = DirectError.missingKey.localizedDescription
+        }
+    }
+
+    /// Ohne PC loslegen: Kamera starten und aufs Weckwort hören
+    private func activateDirect() {
+        if !activeSource.isRunning { startActiveFrameSource() }
+        if state == .disconnected || state == .idle || state == .standby { goIdle() }
     }
 
     func disconnect() {
@@ -299,29 +416,30 @@ final class SessionViewModel: ObservableObject {
 
     // MARK: - Sprache
 
+    /// Mikrofon-Knopf: in Bereitschaft oder Ruhe sofort zuhören, beim Zuhören abbrechen
     func toggleListening() {
-        if speechManager.isListening {
+        if speechManager.listenMode == .command {
             speechManager.stopListening()
-            state = isConnected ? .idle : .disconnected
+            goIdle()
         } else {
             startListening()
         }
     }
 
-    func startListening() {
+    func startListening(noSpeechTimeout: TimeInterval? = nil) {
         do {
-            try speechManager.startListening()
+            try speechManager.startListening(mode: .command, noSpeechTimeout: noSpeechTimeout)
             state = .listening
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
-            state = isConnected ? .idle : .disconnected
+            goIdle()
         }
     }
 
     func interruptSpeaking() {
         speechManager.stopSpeaking()
-        state = isConnected ? .idle : .disconnected
+        state = restingState
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.startListening()
         }
@@ -336,13 +454,20 @@ final class SessionViewModel: ObservableObject {
     }
 
     private func handleUserSpeech(_ text: String) async {
-        // Offene Freigabe? Dann ist „ja“/„nein“ die Antwort darauf.
+        // Offene Freigabe oder Rückfrage? Dann ist „ja“/„nein“ die Antwort darauf.
         if let request = pendingPermission, let allow = Self.interpretYesNo(text) {
             await answerPermission(request, allow: allow)
+            goIdle()
+            return
+        }
+        if let confirmation = phoneActions.confirmation, confirmation.options.count == 1, let yes = Self.interpretYesNo(text) {
+            if yes { confirmAction(confirmation.options[0]) } else { dismissAction() }
+            goIdle()
             return
         }
         guard !isProcessing else {
             notice = "Claude antwortet noch – kurz warten"
+            goIdle()
             return
         }
         guard isConnected else {
@@ -350,16 +475,25 @@ final class SessionViewModel: ObservableObject {
             return
         }
 
+        let currentRoute = route
+        guard currentRoute != .none else {
+            errorMessage = "Nicht verbunden – mit dem PC koppeln oder „Ohne PC“ einrichten"
+            return
+        }
+
         let id = "ios-\(UUID().uuidString.prefix(8))"
-        transcript.append(TranscriptMessage(id: id, role: .user, text: text, delivered: config.connectionMode == .gateway))
+        let viaChannel = currentRoute == .pc && config.connectionMode == .channel
+        transcript.append(TranscriptMessage(id: id, role: .user, text: text, delivered: !viaChannel))
         currentTranscription = ""
         isProcessing = true
-        state = .thinking
+        processingRoute = currentRoute
         errorMessage = nil
         let image = activeSource.consumeFrame()
+        goIdle() // während Claude nachdenkt, reagiert die App weiter auf „Hey Claude“
 
-        switch config.connectionMode {
-        case .channel:
+        if currentRoute == .direct {
+            await sendDirect(text: text, image: image)
+        } else if viaChannel {
             do {
                 armWatchdog(replyTimeout: false)
                 try await bridge.send(.init(id: id, text: text, source: activeFrameSource, mode: modeManager.activeMode, image: image))
@@ -367,8 +501,54 @@ final class SessionViewModel: ObservableObject {
                 errorMessage = error.localizedDescription
                 finishProcessing()
             }
-        case .gateway:
+        } else {
             await sendViaGateway(text: text, image: image)
+        }
+    }
+
+    /// Ohne PC: direkt an die Claude-API; Handy-Aktionen und Fotos laufen lokal
+    private func sendDirect(text: String, image: Data?) async {
+        do {
+            let answer = try await directClient.ask(text, image: image, mode: modeManager.activeMode, config: config) { [weak self] name, input in
+                await self?.executeDirectTool(name: name, input: input)
+                    ?? DirectClaudeClient.ToolOutput(text: "App nicht verfügbar", isError: true)
+            }
+            transcript.append(TranscriptMessage(role: .assistant, text: answer.text, toolCalls: answer.toolsUsed))
+            finishProcessing()
+            speak(answer.text, audioPath: nil)
+        } catch {
+            errorMessage = error.localizedDescription
+            finishProcessing()
+        }
+    }
+
+    private func executeDirectTool(name: String, input: [String: Any]) async -> DirectClaudeClient.ToolOutput {
+        switch name {
+        case "take_photo":
+            guard let photo = await activeSource.capturePhoto() else {
+                return DirectClaudeClient.ToolOutput(text: "Kein Kamerabild verfügbar", isError: true)
+            }
+            transcript.append(TranscriptMessage(role: .system, text: "📸 Foto an Claude gesendet"))
+            return DirectClaudeClient.ToolOutput(text: "Aktuelles Foto", imageJPEG: photo)
+        case "phone_action":
+            guard let kind = (input["action"] as? String).flatMap(PhoneAction.Kind.init(rawValue:)) else {
+                return DirectClaudeClient.ToolOutput(text: "Unbekannte Aktion", isError: true)
+            }
+            let action = PhoneAction(
+                id: UUID().uuidString, kind: kind,
+                durationSeconds: input["duration_seconds"] as? Int,
+                time: input["time"] as? String,
+                label: input["label"] as? String,
+                contact: input["contact"] as? String,
+                number: input["number"] as? String,
+                text: input["text"] as? String,
+                destination: input["destination"] as? String
+            )
+            let result = await phoneActions.handle(action)
+            transcript.append(TranscriptMessage(role: .system, text: (result.ok ? "📱 " : "⚠️ ") + result.message))
+            return DirectClaudeClient.ToolOutput(text: result.message, isError: !result.ok)
+        default:
+            return DirectClaudeClient.ToolOutput(text: "Unbekanntes Werkzeug \(name)", isError: true)
         }
     }
 
@@ -408,7 +588,7 @@ final class SessionViewModel: ObservableObject {
         watchdog?.cancel()
         watchdog = nil
         isProcessing = false
-        if state == .thinking { state = isConnected ? .idle : .disconnected }
+        if state == .thinking { state = restingState }
     }
 
     /// Früher blieb die App ohne Antwort für immer bei „Denkt nach“ hängen.
@@ -443,6 +623,31 @@ final class SessionViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Handy-Aktionen (Tool phone_action)
+
+    private func handlePhoneAction(_ action: PhoneAction) async {
+        let result = await phoneActions.handle(action)
+        transcript.append(TranscriptMessage(role: .system, text: (result.ok ? "📱 " : "⚠️ ") + result.message))
+        if phoneActions.confirmation != nil {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        }
+        do {
+            try await bridge.sendActionResult(id: action.id, result: result)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func confirmAction(_ option: ActionConfirmation.Option) {
+        transcript.append(TranscriptMessage(role: .system, text: "✅ \(option.label)"))
+        phoneActions.confirm(option)
+    }
+
+    func dismissAction() {
+        phoneActions.dismissConfirmation()
+        transcript.append(TranscriptMessage(role: .system, text: "⛔ Abgebrochen"))
+    }
+
     // MARK: - Freigaben (Permission-Relay)
 
     private func handlePermissionRequest(_ request: PermissionRequest) {
@@ -463,7 +668,7 @@ final class SessionViewModel: ObservableObject {
         }
     }
 
-    private static let yesWords = ["ja", "jawohl", "jo", "erlauben", "erlaube", "okay", "ok", "klar", "mach", "yes", "gerne"]
+    private static let yesWords = ["ja", "jawohl", "jo", "erlauben", "erlaube", "okay", "ok", "klar", "mach", "yes", "gerne", "anrufen", "senden", "los"]
     private static let noWords = ["nein", "nö", "ne", "nicht", "ablehnen", "lehne", "stopp", "stop", "no", "abbrechen"]
 
     /// „Ja“/„Nein“ aus einer gesprochenen Antwort lesen (nil = unklar)
@@ -482,6 +687,7 @@ final class SessionViewModel: ObservableObject {
     func resetConversation() {
         transcript.removeAll()
         bridge.resetConversation()
+        directClient.reset()
         lastGatewayMode = nil
         errorMessage = nil
     }

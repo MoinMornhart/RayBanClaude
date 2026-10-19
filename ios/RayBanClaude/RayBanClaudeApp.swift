@@ -1,6 +1,12 @@
 import SwiftUI
 import MWDATCore
 
+/// Ob das Meta-SDK bereit ist – ohne erfolgreiche Konfiguration darf Wearables.shared nicht genutzt werden
+@MainActor
+enum WearablesSupport {
+    static var isConfigured = false
+}
+
 @main
 struct RayBanClaudeApp: App {
     @StateObject private var viewModel: SessionViewModel
@@ -9,6 +15,7 @@ struct RayBanClaudeApp: App {
         // Das DAT SDK muss vor jedem Zugriff auf Wearables.shared konfiguriert sein
         do {
             try Wearables.configure()
+            WearablesSupport.isConfigured = true
         } catch {
             print("[App] Meta-SDK konnte nicht konfiguriert werden: \(error)")
         }

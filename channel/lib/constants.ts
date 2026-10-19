@@ -56,6 +56,8 @@ export const CAPTURE_TTL_MINUTES = 5
 export const CAPTURE_TTL_MS = CAPTURE_TTL_MINUTES * MS_PER_MINUTE
 export const TTS_TIMEOUT_MS = 20_000
 export const WS_IDLE_TIMEOUT_SECONDS = 120
+export const PHONE_ACTION_TIMEOUT_MS = 25_000
+export const MAX_ACTION_RESULT_CHARS = 300
 
 // ── Token ──────────────────────────────────────────────────────────────────
 export const TOKEN_BYTES = 24              // → 48 Hex-Zeichen

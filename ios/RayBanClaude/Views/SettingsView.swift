@@ -18,6 +18,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 connectionSection
+                directSection
                 modesSection
                 cameraSection
                 rayBanSection
@@ -65,48 +66,96 @@ struct SettingsView: View {
                 ForEach(ConnectionMode.allCases) { Text($0.label).tag($0) }
             }
 
-            LabeledContent("PC-Adresse") {
-                TextField("192.168.178.20", text: $viewModel.config.gatewayHost)
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-            }
-            LabeledContent("Port") {
-                // Eigener Textzustand: früher sprang das Feld beim Löschen sofort auf 18790 zurück
-                TextField("18790", text: $portText)
-                    .multilineTextAlignment(.trailing)
-                    .keyboardType(.numberPad)
-                    .onChange(of: portText) { _, text in
-                        if let port = Int(text), (1024...65535).contains(port) { viewModel.config.gatewayPort = port }
-                    }
-            }
-            LabeledContent("Token") {
-                SecureField("aus dem Dashboard", text: $viewModel.config.channelToken)
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
+            if viewModel.config.connectionMode.usesPC {
+                LabeledContent("PC-Adresse") {
+                    TextField("192.168.178.20", text: $viewModel.config.gatewayHost)
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+                LabeledContent("Port") {
+                    // Eigener Textzustand: früher sprang das Feld beim Löschen sofort auf 18790 zurück
+                    TextField("18790", text: $portText)
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.numberPad)
+                        .onChange(of: portText) { _, text in
+                            if let port = Int(text), (1024...65535).contains(port) { viewModel.config.gatewayPort = port }
+                        }
+                }
+                LabeledContent("Token") {
+                    SecureField("aus dem Dashboard", text: $viewModel.config.channelToken)
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
 
-            Button {
-                testConnection()
-            } label: {
-                HStack {
-                    Label("Verbindung testen", systemImage: "bolt.horizontal.circle")
-                    Spacer()
-                    if isTesting {
-                        ProgressView()
-                    } else if let testResult {
-                        Text(testResult.text).font(.caption).foregroundStyle(testResult.ok ? .green : .red)
+                Button {
+                    testConnection()
+                } label: {
+                    HStack {
+                        Label("Verbindung testen", systemImage: "bolt.horizontal.circle")
+                        Spacer()
+                        if isTesting {
+                            ProgressView()
+                        } else if let testResult {
+                            Text(testResult.text).font(.caption).foregroundStyle(testResult.ok ? .green : .red)
+                        }
                     }
                 }
             }
         } header: {
-            Text("Verbindung zum PC")
+            Text("Verbindung")
         } footer: {
-            Text(viewModel.config.connectionMode == .channel
-                 ? "Am einfachsten: Auf dem PC Claude Code mit RayBan Claude starten, http://localhost:18790 öffnen und den QR-Code mit der iPhone-Kamera scannen. Kostenlos mit deinem Claude-Abo."
-                 : "Gateway-Modus: eigener Server mit Anthropic-API-Key (kostet pro Anfrage). Token steht beim Start im Server-Fenster.")
+            Text(connectionFooter)
+        }
+    }
+
+    private var connectionFooter: String {
+        switch viewModel.config.connectionMode {
+        case .channel:
+            return "Am einfachsten: Auf dem PC start.cmd doppelklicken und den QR-Code im Dashboard mit der iPhone-Kamera scannen. Kostenlos mit deinem Claude-Abo, alle PC-Werkzeuge verfügbar."
+        case .gateway:
+            return "Gateway-Modus: eigener Server auf dem PC mit Anthropic-API-Key (kostet pro Anfrage). Das Token steht beim Start im Server-Fenster."
+        case .direct:
+            return "Ohne PC: Das iPhone fragt Claude direkt über das Internet (auch mobile Daten). Braucht einen API-Key, siehe unten."
+        }
+    }
+
+    // MARK: - Ohne PC
+
+    private var directSection: some View {
+        Section {
+            LabeledContent("API-Key") {
+                SecureField("sk-ant-…", text: $viewModel.config.anthropicAPIKey)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            if !viewModel.config.anthropicAPIKey.isEmpty && !viewModel.config.hasDirectKey {
+                Label("Das sieht nicht wie ein Anthropic-API-Key aus (beginnt mit sk-ant-)", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            Picker("Modell", selection: $viewModel.config.directModel) {
+                ForEach(DirectClaudeClient.models) { model in
+                    VStack(alignment: .leading) {
+                        Text(model.name)
+                        Text(model.hint).font(.caption).foregroundStyle(.secondary)
+                    }
+                    .tag(model.id)
+                }
+            }
+            if viewModel.config.connectionMode.usesPC {
+                Toggle("Automatisch, wenn der PC nicht erreichbar ist", isOn: $viewModel.config.directFallback)
+            }
+            Toggle("Websuche (Wetter, Öffnungszeiten …)", isOn: $viewModel.config.webSearchEnabled)
+            if let url = URL(string: "https://console.anthropic.com/settings/keys") {
+                Link(destination: url) { Label("API-Key bei Anthropic erstellen", systemImage: "key") }
+            }
+        } header: {
+            Text("Ohne PC (unterwegs)")
+        } footer: {
+            Text("Kostet pro Frage – mit Claude Opus 5.5 meist 1–3 Cent, Sonnet etwa die Hälfte, Haiku ein Bruchteil; jede Websuche ca. 1 Cent. Dein Claude-Abo gilt hier nicht. Werkzeuge vom PC (E-Mail, Dateien) gibt es ohne PC nicht – Timer, Anrufe, Navigation und Fotos schon. Der Key liegt nur im Schlüsselbund dieses iPhones.")
         }
     }
 
@@ -236,9 +285,10 @@ struct SettingsView: View {
                 LabeledContent("Senden nach Sprechpause", value: String(format: "%.1f s", viewModel.config.speechPauseThreshold))
                 Slider(value: $viewModel.config.speechPauseThreshold, in: 0.5...3.0, step: 0.25)
             }
-            Toggle("Nach Antwort weiter zuhören", isOn: $viewModel.config.autoListen)
+            Toggle("Weckwort „Hey Claude“ / „Claudi“", isOn: $viewModel.config.wakeWordEnabled)
+            Toggle("Nach Antwort kurz weiter zuhören", isOn: $viewModel.config.autoListen)
 
-            if viewModel.config.connectionMode == .gateway {
+            if viewModel.config.connectionMode != .channel {
                 LabeledContent("ElevenLabs-Key") {
                     SecureField("optional", text: $viewModel.config.elevenLabsAPIKey)
                         .multilineTextAlignment(.trailing)
@@ -254,9 +304,12 @@ struct SettingsView: View {
         } header: {
             Text("Sprache & Stimme")
         } footer: {
-            Text(viewModel.config.connectionMode == .channel
+            Text((viewModel.config.wakeWordEnabled
+                  ? "Mit Weckwort hört die App freihändig zu, solange sie geöffnet ist – sag „Hey Claude“ oder „Claudi“ und dann deine Frage, z. B. „Hey Claude, stell einen Timer auf zehn Minuten“. Die Erkennung läuft nur auf dem iPhone. "
+                  : "")
+                 + (viewModel.config.connectionMode == .channel
                  ? "Standard ist die kostenlose iPhone-Stimme. Eine ElevenLabs-Stimme stellst du im PC-Dashboard ein. Tipp: Unter iOS-Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen eine „Premium“-Stimme laden – klingt deutlich natürlicher."
-                 : "Ohne ElevenLabs-Key spricht die kostenlose iPhone-Stimme.")
+                 : "Ohne ElevenLabs-Key spricht die kostenlose iPhone-Stimme."))
         }
     }
 

@@ -1,20 +1,25 @@
 import Foundation
 
-/// Verbindungsart zum PC.
+/// Wie die App mit Claude spricht.
 enum ConnectionMode: String, Codable, CaseIterable, Identifiable {
-    /// Claude Code + Channel – kostenlos mit dem Claude-Abo, alle MCP-Tools und Skills
+    /// Claude Code + Channel auf dem PC – kostenlos mit dem Claude-Abo, alle MCP-Tools und Skills
     case channel
-    /// Eigenständiger Gateway-Server mit Anthropic-API-Key (kostet pro Nutzung)
+    /// Eigenständiger Gateway-Server auf dem PC mit Anthropic-API-Key (kostet pro Nutzung)
     case gateway
+    /// Ohne PC: das iPhone fragt die Claude-API direkt (eigener API-Key, kostet pro Frage)
+    case direct
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .channel: return "Claude Code (kostenlos)"
-        case .gateway: return "Gateway (API-Key)"
+        case .channel: return "PC: Claude Code (kostenlos)"
+        case .gateway: return "PC: Gateway (API-Key)"
+        case .direct: return "Ohne PC (API-Key)"
         }
     }
+
+    var usesPC: Bool { self != .direct }
 }
 
 struct ClaudeConfig: Codable, Equatable {
@@ -29,10 +34,22 @@ struct ClaudeConfig: Codable, Equatable {
     var speechLanguage: String = ClaudeConfig.defaultLanguage
     /// Nach Claudes Antwort automatisch wieder zuhören (freihändig mit der Brille)
     var autoListen: Bool = true
+    /// Weckwort „Hey Claude“ / „Claudi“ – die App wartet freihändig auf dich
+    var wakeWordEnabled: Bool = true
+    /// Ohne PC: Modell für die direkte Claude-API
+    var directModel: String = DirectClaudeClient.defaultModel
+    /// PC nicht erreichbar → automatisch direkt fragen (nur mit API-Key)
+    var directFallback: Bool = true
+    /// Websuche im Direkt-Modus (Wetter, Öffnungszeiten …; kostet extra pro Suche)
+    var webSearchEnabled: Bool = true
 
     // Geheimnisse liegen im Schlüsselbund, nicht in den UserDefaults
     var channelToken: String = ""
     var elevenLabsAPIKey: String = ""
+    var anthropicAPIKey: String = ""
+
+    /// Direkt-Modus nutzbar? (API-Key vorhanden)
+    var hasDirectKey: Bool { anthropicAPIKey.hasPrefix("sk-ant-") && anthropicAPIKey.count >= 20 }
 
     static let defaultPort = 18790
     static let supportedLanguages: [(code: String, name: String)] = [
@@ -50,7 +67,8 @@ struct ClaudeConfig: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case gatewayHost, gatewayPort, connectionMode, videoFrameInterval, videoJPEGQuality
-        case speechPauseThreshold, elevenLabsVoiceId, speechLanguage, autoListen
+        case speechPauseThreshold, elevenLabsVoiceId, speechLanguage, autoListen, wakeWordEnabled
+        case directModel, directFallback, webSearchEnabled
     }
 
     var isConfigured: Bool { baseURL != nil && !channelToken.isEmpty }
@@ -93,6 +111,7 @@ struct ClaudeConfig: Codable, Equatable {
         }
         KeychainStore.set(channelToken, for: .channelToken)
         KeychainStore.set(elevenLabsAPIKey, for: .elevenLabsAPIKey)
+        KeychainStore.set(anthropicAPIKey, for: .anthropicAPIKey)
     }
 
     static func load() -> ClaudeConfig {
@@ -100,6 +119,7 @@ struct ClaudeConfig: Codable, Equatable {
             .flatMap { try? JSONDecoder().decode(ClaudeConfig.self, from: $0) } ?? ClaudeConfig()
         config.channelToken = KeychainStore.get(.channelToken)
         config.elevenLabsAPIKey = KeychainStore.get(.elevenLabsAPIKey)
+        config.anthropicAPIKey = KeychainStore.get(.anthropicAPIKey)
         return config
     }
 }
@@ -117,5 +137,9 @@ extension ClaudeConfig {
         elevenLabsVoiceId = try c.decodeIfPresent(String.self, forKey: .elevenLabsVoiceId) ?? defaults.elevenLabsVoiceId
         speechLanguage = try c.decodeIfPresent(String.self, forKey: .speechLanguage) ?? defaults.speechLanguage
         autoListen = try c.decodeIfPresent(Bool.self, forKey: .autoListen) ?? defaults.autoListen
+        wakeWordEnabled = try c.decodeIfPresent(Bool.self, forKey: .wakeWordEnabled) ?? defaults.wakeWordEnabled
+        directModel = try c.decodeIfPresent(String.self, forKey: .directModel) ?? defaults.directModel
+        directFallback = try c.decodeIfPresent(Bool.self, forKey: .directFallback) ?? defaults.directFallback
+        webSearchEnabled = try c.decodeIfPresent(Bool.self, forKey: .webSearchEnabled) ?? defaults.webSearchEnabled
     }
 }

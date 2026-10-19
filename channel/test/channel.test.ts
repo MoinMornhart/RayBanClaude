@@ -24,6 +24,7 @@ const HTTP_TOO_MANY = 429
 const JSONRPC = '2.0'
 const PROTOCOL = '2025-06-18'
 const PERMISSION_ID = 'tbxkq'
+const TEN_MINUTES_SECONDS = 600
 /** Kleinstes Dummy-„JPEG“: Magic Bytes plus Füllbytes (der Server prüft nur den Header). */
 const FAKE_JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new Array(28).fill(0)]) // eslint-disable-line ts-patterns/no-magic-numbers
 
@@ -121,13 +122,13 @@ afterAll(() => {
 })
 
 describe('MCP-Seite', () => {
-  test('meldet Channel- und Permission-Capability sowie drei Tools', async () => {
+  test('meldet Channel- und Permission-Capability sowie vier Tools', async () => {
     const init = received.find(m => m.id === 1)?.result ?? {}
     const caps = (init.capabilities ?? {}) as Record<string, Record<string, unknown>>
     expect(caps.experimental?.['claude/channel']).toEqual({})
     expect(caps.experimental?.['claude/channel/permission']).toEqual({})
     const tools = (await rpc('tools/list')).tools as { name: string }[]
-    expect(tools.map(t => t.name).sort()).toEqual(['edit_message', 'reply', 'request_photo'])
+    expect(tools.map(t => t.name).sort()).toEqual(['edit_message', 'phone_action', 'reply', 'request_photo'])
   })
 })
 
@@ -223,6 +224,36 @@ describe('Nachrichtenfluss App ↔ Claude', () => {
     ws.send(JSON.stringify({ type: 'permission', request_id: PERMISSION_ID, behavior: 'allow' }))
     const verdict = await notification('notifications/claude/channel/permission', p => p.request_id === PERMISSION_ID)
     expect(verdict.behavior).toBe('allow')
+    ws.close()
+  })
+})
+
+describe('Handy-Aktionen (phone_action)', () => {
+  test('Timer geht an die App, deren Ergebnis zurück an Claude', async () => {
+    const { ws, inbox } = await openSocket()
+    const pending = rpc('tools/call', { name: 'phone_action', arguments: { action: 'timer', duration_seconds: TEN_MINUTES_SECONDS, label: 'Nudeln' } })
+    const action = await waitFor(() => inbox.find(m => m.type === 'phone_action'), 'phone_action')
+    expect(action.action).toBe('timer')
+    expect(action.duration_seconds).toBe(TEN_MINUTES_SECONDS)
+    expect(action.label).toBe('Nudeln')
+    ws.send(JSON.stringify({ type: 'action_result', id: action.id, ok: true, message: 'Timer „Nudeln“ läuft (10 Min)' }))
+    const result = await pending
+    expect(JSON.stringify(result.content)).toContain('erledigt')
+    expect(result.isError).toBeFalsy()
+    ws.close()
+  })
+
+  test('ungültige Eingaben werden abgewiesen, bevor etwas ans Handy geht', async () => {
+    const { ws, inbox } = await openSocket()
+    const zero = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'timer', duration_seconds: 0 } })
+    expect(zero.isError).toBe(true)
+    const badTime = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'alarm', time: '25:00' } })
+    expect(badTime.isError).toBe(true)
+    const noTarget = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'call' } })
+    expect(noTarget.isError).toBe(true)
+    const unknown = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'format_disk' } })
+    expect(unknown.isError).toBe(true)
+    expect(inbox.some(m => m.type === 'phone_action')).toBe(false)
     ws.close()
   })
 })
