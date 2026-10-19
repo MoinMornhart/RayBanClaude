@@ -3,6 +3,8 @@
   Normalerweise einfach start.cmd doppelklicken.
 #>
 Set-Location -Path $PSScriptRoot
+# Frisch installierte Werkzeuge finden, auch wenn Windows den PATH noch nicht neu geladen hat
+$env:Path = "$env:USERPROFILE\.bun\bin;$env:USERPROFILE\.local\bin;$env:Path"
 $Port = if ($env:RAYBANCLAUDE_PORT) { $env:RAYBANCLAUDE_PORT } else { 18790 }
 
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
@@ -29,9 +31,11 @@ Start-Job -ArgumentList $Port -ScriptBlock {
 } | Out-Null
 
 Write-Host "◉ RayBan Claude startet … Dashboard öffnet sich gleich im Browser." -ForegroundColor DarkYellow
-Write-Host "  Antworten an das Handy sind vorab erlaubt; andere Tools fragst du auf dem Handy oder hier frei." -ForegroundColor Gray
+Write-Host "  Antworten, Fotos, Handy-Aktionen und Gedächtnis sind vorab erlaubt; andere Tools fragst du auf dem Handy frei." -ForegroundColor Gray
 
-# Nur die eigenen Antwort-Tools werden vorab erlaubt – alles andere fragt weiter nach
-# (auf Wunsch direkt auf dem Handy per Permission-Relay).
+# Vorab erlaubt sind nur die eigenen Werkzeuge von RayBan Claude – alles andere fragt weiter nach
+# (auf Wunsch direkt auf dem Handy per Permission-Relay). Anrufe, Nachrichten und Navigation
+# bestätigt der Nutzer ohnehin immer selbst auf dem iPhone.
 claude --dangerously-load-development-channels server:raybanclaude `
-    --allowedTools "mcp__raybanclaude__reply" "mcp__raybanclaude__edit_message" "mcp__raybanclaude__request_photo"
+    --allowedTools "mcp__raybanclaude__reply" "mcp__raybanclaude__edit_message" "mcp__raybanclaude__request_photo" `
+    "mcp__raybanclaude__phone_action" "mcp__raybanclaude__remember" "mcp__raybanclaude__forget"

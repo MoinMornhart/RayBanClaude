@@ -1,0 +1,106 @@
+# Baut den Windows-Installer RayBanClaude-Setup.exe (Inno Setup) in der Cloud – kostenlos für öffentliche Repos.
+# Bei einem Release wird er samt SHA-256-Prüfsumme an das Release gehängt.
+name: Windows-Installer bauen
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "installer/**"
+      - "channel/**"
+      - "setup.ps1"
+      - "setup.cmd"
+      - "start.ps1"
+      - "start.cmd"
+      - "firewall.ps1"
+      - ".mcp.json"
+      - ".github/workflows/windows-installer.yml"
+  pull_request:
+    paths:
+      - "installer/**"
+      - "setup.ps1"
+      - "start.ps1"
+      - "firewall.ps1"
+      - ".github/workflows/windows-installer.yml"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Setup.exe bauen
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Inno Setup bereitstellen
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup nicht gefunden" }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Version bestimmen
+        shell: pwsh
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $version = if ($env:TAG) { $env:TAG.TrimStart('v') } else { (Get-Content channel/package.json -Raw | ConvertFrom-Json).version }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Ungültige Version: $version" }
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: PowerShell-Skripte prüfen
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($file in 'setup.ps1', 'start.ps1', 'firewall.ps1') {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$null, [ref]$errors)
+            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Host "$file: $($_.Message)" } }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Installer bauen
+        shell: pwsh
+        run: |
+          & $env:ISCC "/DAppVersion=$env:APP_VERSION" installer\RayBanClaude.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item installer\Output\RayBanClaude-Setup.exe | Select-Object Name, Length
+
+      - name: Installer hochladen
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: RayBanClaude-Setup
+          path: installer/Output/RayBanClaude-Setup.exe
+          retention-days: 30
+
+  release:
+    name: Installer an Release anhängen
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: RayBanClaude-Setup
+      - name: Prüfsumme erzeugen
+        run: sha256sum RayBanClaude-Setup.exe | tee RayBanClaude-Setup.exe.sha256
+
+      - name: An Release anhängen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" RayBanClaude-Setup.exe RayBanClaude-Setup.exe.sha256 --clobber --repo "$GITHUB_REPOSITORY"

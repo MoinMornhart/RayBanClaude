@@ -19,6 +19,7 @@ command -v claude >/dev/null || { echo "Claude Code fehlt – bitte zuerst ./set
 ) &
 
 echo "◉ RayBan Claude startet … Dashboard öffnet sich gleich im Browser."
-# Nur die eigenen Antwort-Tools vorab erlauben – alles andere fragt weiter nach
+# Nur die eigenen Werkzeuge von RayBan Claude vorab erlauben – alles andere fragt weiter nach
 exec claude --dangerously-load-development-channels server:raybanclaude \
-  --allowedTools "mcp__raybanclaude__reply" "mcp__raybanclaude__edit_message" "mcp__raybanclaude__request_photo"
+  --allowedTools "mcp__raybanclaude__reply" "mcp__raybanclaude__edit_message" "mcp__raybanclaude__request_photo" \
+                 "mcp__raybanclaude__phone_action" "mcp__raybanclaude__remember" "mcp__raybanclaude__forget"
