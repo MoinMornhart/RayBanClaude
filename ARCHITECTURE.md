@@ -43,13 +43,40 @@ Ein Netzwechsel (`NWPathMonitor`) oder ein fehlgeschlagener Ping startet die Ver
 Ist der PC unter keiner Adresse erreichbar und ein API-Key hinterlegt, fragt die App Claude direkt.
 Unterwegs läuft damit weiterhin alles über Claude Code und das Claude-Abo des Nutzers.
 
+## Kamera nur auf Zuruf (wie Meta AI)
+
+- `VisionIntent` entscheidet anhand der Frage, ob ein Bild nötig ist („Was ist das?“, „Lies vor“, „Mach ein Foto“).
+  Sonst geht die Frage ohne Bild an Claude; braucht Claude doch eins, ruft es `request_photo`/`take_photo`.
+- `RayBanManager` ist nur „bereit“: Erst für ein Foto startet er Sitzung → Kamera → Stream (`hvc1`, läuft laut Meta
+  auch im Hintergrund) → `capturePhoto`, nach 15 s ohne weiteres Foto wird alles wieder freigegeben
+  (mind. 2 s zwischen Sitzungen). Schon während der Nutzer spricht, weckt eine erkannte Bild-Frage die Kamera.
+- Brille zuerst: `AudioSessionManager` wählt das Bluetooth-Mikrofon der Ray-Ban Meta vor jedem anderen Headset;
+  kann die Brille kein Foto machen, springt bei offener App die iPhone-Kamera ein.
+
+## Hosentaschen-Modus
+
+Die Aufnahme (`AVAudioEngine`) läuft durch, nur die Spracherkennung wechselt (`RecognitionSink`) – so darf iOS die
+App mit Hintergrund-Audio weiterlaufen lassen, auch bei gesperrtem iPhone. Ohne Weckwort wird das Mikrofon ganz
+freigegeben.
+
+## Verknüpfung mit der Claude-Desktop-App
+
+- Der Channel schreibt den Gesprächsverlauf (`~/.claude/channels/raybanclaude/verlauf/JJJJ-MM-TT.md`, 30 Tage) und
+  eine Kopie der Merkliste (`gedaechtnis.json`).
+- `channel/bridge.ts` ist ein eigener MCP-Server (stdio) für die Claude-Desktop-App mit `brille_verlauf`,
+  `brille_gedaechtnis` und `brille_merken`. Vorgemerkte Fakten (`gedaechtnis-neu.json`) übernimmt der Channel, sobald
+  das iPhone verbunden ist, und schickt sie als `memory`/`add` an die App.
+- `channel/link-desktop.ts` trägt die Brücke in `claude_desktop_config.json` ein (normale und Store-Version, mit
+  Sicherungskopie); `--remove` trägt sie wieder aus.
+- `start.ps1` startet Claude Code mit `--continue`, wenn es in diesem Ordner schon eine Sitzung gibt.
+
 ## Gedächtnis
 
 - **Quelle der Wahrheit ist die App** (`MemoryStore`, JSON-Datei mit Datenschutzklasse
   *complete until first user authentication*). Max. 200 Einträge à 300 Zeichen.
-- **Channel:** Beim Verbinden und nach jeder Änderung schickt die App `memory_sync`. Der Server hält die
-  Liste nur im Arbeitsspeicher und stellt sie der *ersten* Nachricht an Claude voran – erneut nur, wenn sie sich
-  geändert hat. Die Tools `remember`/`forget` ändern die Kopie und schicken `memory` (add/remove) an die App.
+- **Channel:** Beim Verbinden und nach jeder Änderung schickt die App `memory_sync`. Der Server hält eine
+  Kopie (Arbeitsspeicher + `gedaechtnis.json` für die Claude-App) und stellt sie der *ersten* Nachricht an Claude
+  voran – erneut nur, wenn sie sich geändert hat. Die Tools `remember`/`forget` ändern die Kopie und schicken `memory` (add/remove) an die App.
 - **Direkt:** Die Liste steht in der ersten Nutzernachricht eines Verlaufs (der Systemprompt bleibt gleich →
   Prompt-Caching), `remember`/`forget` laufen lokal.
 - **Gateway:** Die Liste geht einmal pro Gespräch mit; merken geht dort nur über die App.

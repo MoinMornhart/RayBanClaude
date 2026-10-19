@@ -48,6 +48,7 @@ const PLATFORM = platform()
 const IS_WINDOWS = PLATFORM === 'win32'
 const IS_MAC = PLATFORM === 'darwin'
 const ENABLED = '1'
+const DISABLED = '0'
 
 /** Anhänge, die Claude an die App schicken darf (Schutz vor Datei-Exfiltration). */
 const ATTACH_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.pdf', '.txt', '.md', '.mp3', '.m4a', '.mp4'])
@@ -640,6 +641,7 @@ function pendingMemoryBlock(): string {
 
 /** Gesprächsverlauf auf dem PC mitschreiben (für die Claude-App: brille_verlauf) */
 function saveHistory(speaker: 'du' | 'claude', text: string, note = ''): void {
+  if (process.env.RAYBANCLAUDE_VERLAUF === DISABLED) return // Verlauf abgeschaltet (.env)
   try {
     appendHistory(HISTORY_DIR, speaker, text, note)
   } catch (e) {

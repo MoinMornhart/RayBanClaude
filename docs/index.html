@@ -319,7 +319,7 @@ footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
       <div class="hero-text">
         <span class="hud-label">Ray-Ban Meta Gen 2 · iPhone · Windows-PC</span>
         <h1>Claude sieht, <em>was du siehst.</em></h1>
-        <p class="lede">Sag „Hey Claude“ – und deine Brille wird zu Augen und Ohren von Claude. Claude schaut durch die Kamera, antwortet mit Stimme, stellt Timer, ruft an und nutzt alle Tools deines PCs – zu Hause und unterwegs, über dein Claude-Abo. Und Claude merkt sich, was du ihm erzählst.</p>
+        <p class="lede">Wie Meta AI – nur mit Claude. Sag „Hey Claude“, und deine Brille wird zu Augen und Ohren von Claude. Claude schaut durch die Kamera, antwortet mit Stimme, stellt Timer, ruft an und nutzt alle Tools deines PCs – zu Hause und unterwegs, über dein Claude-Abo. Und Claude merkt sich, was du ihm erzählst.</p>
         <div class="facts" aria-label="Eckdaten">
           <span class="fact"><span class="dot" aria-hidden="true"></span><b>Kostenlos</b> mit deinem Claude-Abo</span>
           <span class="fact">„<b>Hey Claude</b>“ freihändig</span>
@@ -327,9 +327,11 @@ footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
           <span class="fact">iPhone-App <b>ohne Mac</b></span>
           <span class="fact">Unterwegs <b>übers Abo</b></span>
           <span class="fact">Mit <b>Gedächtnis</b></span>
+          <span class="fact">Kamera nur <b>auf Zuruf</b></span>
         </div>
         <div class="cta-row">
-          <a class="btn primary" href="#schnellstart">In 10 Minuten starten</a>
+          <a class="btn primary" href="https://github.com/MoinMornhart/RayBanClaude/releases/latest/download/RayBanClaude-Setup.exe">Für Windows herunterladen</a>
+          <a class="btn" href="#schnellstart">So geht’s</a>
           <a class="btn" href="https://github.com/MoinMornhart/RayBanClaude">Code auf GitHub</a>
         </div>
         <p class="disclaimer">Inoffizielles Open-Source-Projekt (MIT), Fork von visionclaude. Nicht verbunden mit Meta, Ray-Ban/EssilorLuxottica oder Anthropic.</p>
@@ -402,9 +404,9 @@ footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
         <div class="feature"><span class="hud-label">Foto auf Anfrage</span><h3>Claude drückt selbst ab</h3><p>Braucht Claude ein schärferes Bild, löst es über <code>request_photo</code> ein Foto auf der Brille aus.</p></div>
         <div class="feature"><span class="hud-label">Werkzeuge</span><h3>Deine ganze Claude-Sitzung</h3><p>Visitenkarte lesen und als Kontakt speichern, Mangel fotografieren und als Ticket anlegen – mit deinen MCP-Servern.</p></div>
         <div class="feature"><span class="hud-label">Sprache</span><h3>Deutsch rein, Deutsch raus</h3><p>Spracherkennung auf dem Gerät, kostenlose iPhone-Stimme. ElevenLabs optional für natürlicheren Klang.</p></div>
-        <div class="feature"><span class="hud-label">Brille</span><h3>Gen-2-Status im Blick</h3><p>Akku, Modell und Bügel-Status. Klappst du die Bügel wieder auf, startet der Stream von selbst.</p></div>
-        <div class="feature"><span class="hud-label">Codes</span><h3>QR- und Barcodes</h3><p>EAN, QR, Data Matrix und mehr werden erkannt – mit einem Tipp geht der Inhalt an Claude, Links werden geprüft.</p></div>
-        <div class="feature"><span class="hud-label">Windows</span><h3>Doppelklick-Start</h3><p><code>setup.cmd</code> richtet alles ein, <code>start.cmd</code> startet Claude mit Dashboard. Firewall-Hilfe inklusive.</p></div>
+        <div class="feature"><span class="hud-label">Brille zuerst</span><h3>Kamera nur auf Zuruf</h3><p>Wie bei Meta AI: Die Brille fotografiert nur, wenn deine Frage ein Bild braucht. Mikrofon und Lautsprecher der Brille haben immer Vorrang.</p></div>
+        <div class="feature"><span class="hud-label">Claude-App</span><h3>Verknüpft mit deinen Chats</h3><p>In der Claude-App am PC: „Was habe ich heute über die Brille gefragt?“ oder „Übertrag, was du über mich weißt, an die Brille“.</p></div>
+        <div class="feature"><span class="hud-label">Windows</span><h3>Ein Installer</h3><p><code>RayBanClaude-Setup.exe</code>: Doppelklick, Weiter, fertig – Bun, Claude Code, Firewall und Desktop-Symbol inklusive.</p></div>
         <div class="feature"><span class="hud-label">Gedächtnis</span><h3>„Merk dir …“</h3><p>Namen, Vorlieben, Termine: Claude behält es – mit und ohne PC. Die Liste liegt verschlüsselt auf dem iPhone, Übernahme aus der Claude-App inklusive.</p></div>
       </div>
       <div class="block-head">
@@ -468,10 +470,9 @@ footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
         <h2>Vom Download zum ersten „Was siehst du?“</h2>
       </div>
       <ol class="steps">
-        <li><div class="step-body"><h3>Projekt herunterladen</h3><p>ZIP von GitHub laden und entpacken – oder klonen:</p>
+        <li><div class="step-body"><h3>Installer laden und doppelklicken</h3><p><a href="https://github.com/MoinMornhart/RayBanClaude/releases/latest/download/RayBanClaude-Setup.exe">RayBanClaude-Setup.exe</a> – richtet Bun, Claude Code, Firewall (nur Heim-WLAN und Tailscale) und die Claude-App-Verknüpfung ein. Warnt Windows („Computer wurde geschützt“): <i>Weitere Informationen → Trotzdem ausführen</i> – die Datei ist noch nicht kostenpflichtig signiert. Ohne Installer: Projekt klonen und <code>setup.cmd</code> starten:</p>
           <div class="cmd"><code id="cmd-clone">git clone https://github.com/MoinMornhart/RayBanClaude.git</code><button class="copy" type="button" data-copy="cmd-clone">Kopieren</button></div></div></li>
-        <li><div class="step-body"><h3><code>setup.cmd</code> doppelklicken</h3><p>Installiert bei Bedarf Bun und Claude Code, lädt die Abhängigkeiten und hilft bei der Windows-Firewall (nur privates Netzwerk).</p></div></li>
-        <li><div class="step-body"><h3><code>start.cmd</code> doppelklicken</h3><p>Startet Claude Code mit dem Channel und öffnet das Dashboard. Beim ersten Mal „Use this MCP server“ und „I am using this for local development“ bestätigen. Der Befehl dahinter:</p>
+        <li><div class="step-body"><h3>„RayBan Claude“ starten</h3><p>Desktop-Symbol doppelklicken – Claude Code startet mit dem Channel und öffnet das Dashboard. Beim ersten Mal bei Claude anmelden und „Use this MCP server“ sowie „I am using this for local development“ bestätigen. Der Befehl dahinter:</p>
           <div class="cmd"><code id="cmd-start">claude --dangerously-load-development-channels server:raybanclaude</code><button class="copy" type="button" data-copy="cmd-start">Kopieren</button></div></div></li>
         <li><div class="step-body"><h3>App aufs iPhone – ohne Mac</h3><p>Die App wird in der Cloud gebaut. <code>RayBanClaude.ipa</code> laden und mit <a href="https://sideloadly.io">Sideloadly</a> und deiner Apple-ID installieren. <a href="https://github.com/MoinMornhart/RayBanClaude/blob/main/docs/IPHONE-OHNE-MAC.md">Schritt-für-Schritt-Anleitung</a></p></div></li>
         <li><div class="step-body"><h3>QR-Code scannen und lossprechen</h3><p>iPhone-Kamera auf den QR-Code im Dashboard, „Koppeln“ bestätigen. Für die Brille: in der Meta-AI-App den Entwicklermodus einschalten, in RayBan Claude „Brille verbinden“.</p></div></li>
@@ -537,11 +538,15 @@ footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
         </details>
         <details>
           <summary>Kennt Claude meine Chats aus der Claude-App?</summary>
-          <p>Nicht von selbst – fremde Apps können deine Chats nicht auslesen. In den Einstellungen unter „Gedächtnis“ gibt dir die App eine fertige Frage für die Claude-App; die Antwort fügst du ein. Danach merkt sich RayBan Claude selbst, was du erzählst.</p>
+          <p>Über die Claude-Desktop-App am PC: Der Installer verknüpft sie mit der Brille. Sag dort „Übertrag, was du über mich weißt, an die Brille“ – oder „Was habe ich heute über die Brille gefragt?“. Direkt in deine claude.ai-Chats schreiben darf keine fremde App; dafür gibt es keine Schnittstelle.</p>
+        </details>
+        <details>
+          <summary>Kann es alles, was Meta AI auf der Brille kann?</summary>
+          <p>Vieles: „Hey Claude“ freihändig, Fragen zu dem, was du siehst, Timer, Erinnerungen, „Merk dir, wo ich geparkt habe“, Fotos. Anrufe und Nachrichten brauchen einen Tipp auf dem iPhone (Apple-Regel). Die Geste am Bügel, Live-Übersetzung und Musik bleiben vorerst bei Meta AI.</p>
         </details>
         <details>
           <summary>Funktioniert „Hey Claude“ bei gesperrtem iPhone?</summary>
-          <p>Die App muss geöffnet sein; solange sie läuft, sperrt sich das iPhone nicht automatisch. Es kann in der Tasche bleiben, während du über die Brille sprichst.</p>
+          <p>Ja – im Hosentaschen-Modus hört die App über die Brille weiter, auch wenn das iPhone gesperrt in der Tasche steckt (oben zeigt iOS den orangen Mikrofon-Punkt). Die App muss einmal geöffnet worden sein.</p>
         </details>
         <details>
           <summary>Brauche ich einen Mac?</summary>

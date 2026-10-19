@@ -50,7 +50,7 @@ Alternativ einfach Schritt 3 wiederholen; Einstellungen und Kopplung bleiben erh
 
 ## 5. Mit dem PC koppeln
 
-1. Auf dem PC `start.cmd` doppelklicken → das Dashboard öffnet sich.
+1. Auf dem PC **„RayBan Claude“** starten (Desktop-Symbol vom [Windows-Installer](https://github.com/MoinMornhart/RayBanClaude/releases/latest/download/RayBanClaude-Setup.exe) oder `start.cmd`) → das Dashboard öffnet sich.
 2. iPhone ins selbe WLAN, die normale **Kamera-App** auf den QR-Code halten.
 3. „In RayBan Claude öffnen“ → **Koppeln** bestätigen. Fertig.
 

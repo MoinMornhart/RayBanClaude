@@ -85,6 +85,13 @@ was in RayBan Claude daraus wurde. Schweregrad: 🔴 kritisch · 🟠 hoch · �
   bei sehr langen Sitzungen App gelegentlich neu starten.
 - Die iPhone-App ist in der Cloud gebaut, aber **noch nicht auf echter Hardware** (Brille + iPhone) getestet.
 
+## Wie Meta AI: Kamera auf Zuruf, Hosentaschen-Modus (2026-10-19)
+
+- Die Brille hat dauernd gefilmt (Akku, Wärme, Speicherleck im Meta-SDK #324) – jetzt nur noch Fotos auf Zuruf.
+- Die Aufnahme wurde nach jedem Satz gestoppt; im Hintergrund darf iOS sie dann nicht neu starten – jetzt läuft sie durch.
+- `request_photo` ließ Claude ewig warten, wenn kein Foto möglich war – jetzt kommt „Foto nicht möglich“ zurück.
+- Ein anderes Bluetooth-Headset (z. B. im Auto) konnte der Brille das Mikrofon „wegnehmen“ – jetzt hat die Brille Vorrang.
+
 ## Nachgezogen mit „Unterwegs übers Abo“ und Gedächtnis (2026-10-19)
 
 - **Eigener Fehler aus der ersten Fassung des Direkt-Modus:** Sprachbefehle prüften noch, ob der PC verbunden ist –
