@@ -19,6 +19,7 @@ struct SettingsView: View {
             List {
                 connectionSection
                 directSection
+                memorySection
                 modesSection
                 cameraSection
                 rayBanSection
@@ -56,7 +57,7 @@ struct SettingsView: View {
                     .foregroundStyle(viewModel.isConnected ? .green : .red)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(viewModel.isConnected ? "Verbunden" : "Nicht verbunden").font(.headline)
-                    Text(viewModel.isConnected ? "PC erreichbar, Token gültig" : "QR-Code scannen oder Daten eintragen")
+                    Text(connectionDetail)
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -69,6 +70,13 @@ struct SettingsView: View {
             if viewModel.config.connectionMode.usesPC {
                 LabeledContent("PC-Adresse") {
                     TextField("192.168.178.20", text: $viewModel.config.gatewayHost)
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+                LabeledContent("Unterwegs (Tailscale)") {
+                    TextField("100.x.y.z – optional", text: $viewModel.config.remoteHost)
                         .multilineTextAlignment(.trailing)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -111,10 +119,15 @@ struct SettingsView: View {
         }
     }
 
+    private var connectionDetail: String {
+        guard viewModel.isConnected else { return "QR-Code scannen oder Daten eintragen" }
+        return viewModel.viaTailscale ? "Unterwegs über Tailscale – läuft über dein Claude-Abo" : "PC erreichbar, Token gültig"
+    }
+
     private var connectionFooter: String {
         switch viewModel.config.connectionMode {
         case .channel:
-            return "Am einfachsten: Auf dem PC start.cmd doppelklicken und den QR-Code im Dashboard mit der iPhone-Kamera scannen. Kostenlos mit deinem Claude-Abo, alle PC-Werkzeuge verfügbar."
+            return "Am einfachsten: Auf dem PC start.cmd doppelklicken und den QR-Code im Dashboard mit der iPhone-Kamera scannen. Kostenlos mit deinem Claude-Abo, alle PC-Werkzeuge verfügbar. Unterwegs: Tailscale (kostenlos) auf PC und iPhone installieren und neu koppeln – dann fragt die App auch über mobile Daten deinen PC zu Hause, weiter über dein Abo."
         case .gateway:
             return "Gateway-Modus: eigener Server auf dem PC mit Anthropic-API-Key (kostet pro Anfrage). Das Token steht beim Start im Server-Fenster."
         case .direct:
@@ -155,7 +168,27 @@ struct SettingsView: View {
         } header: {
             Text("Ohne PC (unterwegs)")
         } footer: {
-            Text("Kostet pro Frage – mit Claude Opus 5.5 meist 1–3 Cent, Sonnet etwa die Hälfte, Haiku ein Bruchteil; jede Websuche ca. 1 Cent. Dein Claude-Abo gilt hier nicht. Werkzeuge vom PC (E-Mail, Dateien) gibt es ohne PC nicht – Timer, Anrufe, Navigation und Fotos schon. Der Key liegt nur im Schlüsselbund dieses iPhones.")
+            Text("Kostet pro Frage – mit Claude Opus 5.5 meist 1–3 Cent, Sonnet etwa die Hälfte, Haiku ein Bruchteil; jede Websuche ca. 1 Cent. Dein Claude-Abo gilt hier nicht – über dein Abo geht es unterwegs nur mit Tailscale (siehe oben). Werkzeuge vom PC (E-Mail, Dateien) gibt es ohne PC nicht – Timer, Anrufe, Navigation und Fotos schon. Der Key liegt nur im Schlüsselbund dieses iPhones.")
+        }
+    }
+
+    // MARK: - Gedächtnis
+
+    private var memorySection: some View {
+        Section {
+            NavigationLink {
+                MemoryView(memory: viewModel.memory, enabled: $viewModel.config.memoryEnabled)
+            } label: {
+                LabeledContent {
+                    Text(viewModel.config.memoryEnabled ? "\(viewModel.memory.items.count) Einträge" : "aus")
+                } label: {
+                    Label("Was Claude über dich weiß", systemImage: "brain.head.profile")
+                }
+            }
+        } header: {
+            Text("Gedächtnis")
+        } footer: {
+            Text("„Hey Claude, merk dir …“ – Claude behält es, mit und ohne PC. Aus der Claude-App übernimmst du dein Wissen mit einem Schritt.")
         }
     }
 

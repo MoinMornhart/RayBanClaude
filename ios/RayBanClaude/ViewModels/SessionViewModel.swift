@@ -38,8 +38,12 @@ final class SessionViewModel: ObservableObject {
             applyConfig()
             config.save()
             if config.wakeWordEnabled != oldValue.wakeWordEnabled, state == .idle || state == .standby { goIdle() }
+            if config.memoryEnabled != oldValue.memoryEnabled { syncMemory() }
         }
     }
+
+    /// Verbunden über Tailscale (unterwegs) statt übers Heim-WLAN
+    @Published private(set) var viaTailscale = false
 
     @Published var activeFrameSource: FrameSourceType = .iPhone {
         didSet { if activeFrameSource != oldValue { switchFrameSource() } }
@@ -60,10 +64,14 @@ final class SessionViewModel: ObservableObject {
     let rayBanManager = RayBanManager()
     let phoneActions = PhoneActionHandler()
     let directClient = DirectClaudeClient()
+    /// Was Claude sich über dich merkt – im Demo-Modus nur im Arbeitsspeicher
+    let memory = MemoryStore(persistent: !DemoMode.isActive)
 
     private var cancellables = Set<AnyCancellable>()
     private var watchdog: Task<Void, Never>?
     private var lastGatewayMode: String?
+    /// Gateway-Gespräch kennt das Gedächtnis schon
+    private var gatewayMemorySent = false
     /// Weg der Frage, die gerade bearbeitet wird
     private var processingRoute: Route = .none
 
@@ -82,6 +90,7 @@ final class SessionViewModel: ObservableObject {
         setupBridgeCallbacks()
         setupSpeechCallbacks()
         setupPhoneActions()
+        memory.onChange = { [weak self] in self?.syncMemory() }
         if DemoMode.isActive {
             loadDemo()
         } else {
@@ -110,6 +119,7 @@ final class SessionViewModel: ObservableObject {
                                               options: [.init(label: "Mama (Mobil)", value: "+490000000000")])
         }
         phoneActions.showDemo(timerLabel: "Nudeln", seconds: 9 * 60 + 41, confirmation: confirmation)
+        memory.loadDemo(["Tochter heißt Mia, Geburtstag am 3. Mai", "Trinkt Espresso ohne Zucker", "Arbeitet als Heizungsbauer"])
         state = .standby
     }
 
@@ -128,12 +138,16 @@ final class SessionViewModel: ObservableObject {
     private func setupBindings() {
         // Modus- und Aktions-Änderungen an die Oberfläche weiterreichen. Die Brille wird bewusst
         // NICHT weitergereicht – sonst würde jedes Videobild die ganze Oberfläche neu berechnen.
-        [modeManager.objectWillChange, phoneActions.objectWillChange].forEach { publisher in
+        [modeManager.objectWillChange, phoneActions.objectWillChange, memory.objectWillChange].forEach { publisher in
             publisher.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         }
 
         bridge.$state
             .sink { [weak self] state in self?.bridgeStateChanged(state) }
+            .store(in: &cancellables)
+
+        bridge.$isRemote
+            .sink { [weak self] remote in self?.viaTailscale = remote }
             .store(in: &cancellables)
 
         rayBanManager.$connectionStatus
@@ -201,9 +215,11 @@ final class SessionViewModel: ObservableObject {
         bridge.onConnected = { [weak self] in
             guard let self else { return }
             try? AudioSessionManager.shared.configureForVoiceChat()
-            self.startActiveFrameSource()
+            self.syncMemory() // Claude am PC bekommt die Merkliste mit der ersten Nachricht
+            if !self.activeSource.isRunning { self.startActiveFrameSource() }
             self.goIdle()
         }
+        bridge.onMemory = { [weak self] op, items in self?.applyMemoryFromPC(op: op, items: items) }
         bridge.onReply = { [weak self] reply in self?.handleReply(reply) }
         bridge.onEdit = { [weak self] id, text in
             guard let self, let index = self.transcript.firstIndex(where: { $0.id == id }) else { return }
@@ -240,7 +256,8 @@ final class SessionViewModel: ObservableObject {
         }
         speechManager.onSpeechFinished = { [weak self] in
             guard let self, self.state == .speaking else { return }
-            if self.config.autoListen && self.isConnected {
+            // canTalk statt isConnected – sonst gab es ohne PC (direkt) nie eine Rückfrage
+            if self.config.autoListen && self.canTalk {
                 // Kurz auf eine Rückfrage warten – mit Weckwort danach wieder in Bereitschaft
                 self.startListening(noSpeechTimeout: self.config.wakeWordEnabled ? self.followUpTimeout : nil)
             } else {
@@ -350,11 +367,14 @@ final class SessionViewModel: ObservableObject {
         pendingPairing = nil
         var updated = config
         updated.gatewayHost = pairing.host
+        updated.remoteHost = pairing.remote ?? ""
         updated.gatewayPort = pairing.port
         updated.channelToken = pairing.token
         updated.connectionMode = .channel
         config = updated
-        notice = "Gekoppelt mit \(pairing.host)"
+        notice = pairing.remote == nil
+            ? "Gekoppelt mit \(pairing.host)"
+            : "Gekoppelt – zu Hause über WLAN, unterwegs über Tailscale"
         Task { await connect() }
     }
 
@@ -368,7 +388,7 @@ final class SessionViewModel: ObservableObject {
         cameraManager.stop()
         rayBanManager.stop()
         frameSourceStatus = .disconnected
-        if isConnected { startActiveFrameSource() }
+        if canTalk { startActiveFrameSource() }
     }
 
     private func startActiveFrameSource() {
@@ -470,11 +490,7 @@ final class SessionViewModel: ObservableObject {
             goIdle()
             return
         }
-        guard isConnected else {
-            errorMessage = "Nicht verbunden – erst mit dem PC verbinden"
-            return
-        }
-
+        // Früher stand hier „guard isConnected“ – das hat den Weg ohne PC (direkt) komplett blockiert
         let currentRoute = route
         guard currentRoute != .none else {
             errorMessage = "Nicht verbunden – mit dem PC koppeln oder „Ohne PC“ einrichten"
@@ -509,7 +525,8 @@ final class SessionViewModel: ObservableObject {
     /// Ohne PC: direkt an die Claude-API; Handy-Aktionen und Fotos laufen lokal
     private func sendDirect(text: String, image: Data?) async {
         do {
-            let answer = try await directClient.ask(text, image: image, mode: modeManager.activeMode, config: config) { [weak self] name, input in
+            let answer = try await directClient.ask(text, image: image, mode: modeManager.activeMode, config: config,
+                                                    memory: config.memoryEnabled ? memory.texts : nil) { [weak self] name, input in
                 await self?.executeDirectTool(name: name, input: input)
                     ?? DirectClaudeClient.ToolOutput(text: "App nicht verfügbar", isError: true)
             }
@@ -547,6 +564,19 @@ final class SessionViewModel: ObservableObject {
             let result = await phoneActions.handle(action)
             transcript.append(TranscriptMessage(role: .system, text: (result.ok ? "📱 " : "⚠️ ") + result.message))
             return DirectClaudeClient.ToolOutput(text: result.message, isError: !result.ok)
+        case "remember":
+            guard config.memoryEnabled, let saved = memory.add(input["fact"] as? String ?? "") else {
+                return DirectClaudeClient.ToolOutput(text: "Nichts gespeichert (leer oder Gedächtnis aus)", isError: true)
+            }
+            directClient.acknowledgeMemory(memory.texts)
+            transcript.append(TranscriptMessage(role: .system, text: "🧠 Gemerkt: \(saved)"))
+            return DirectClaudeClient.ToolOutput(text: "Gemerkt – \(memory.items.count) Einträge im Gedächtnis.")
+        case "forget":
+            let removed = memory.forget(matching: input["fact"] as? String ?? "")
+            guard !removed.isEmpty else { return DirectClaudeClient.ToolOutput(text: "Dazu ist nichts gespeichert.") }
+            directClient.acknowledgeMemory(memory.texts)
+            transcript.append(TranscriptMessage(role: .system, text: "🧠 Vergessen: \(removed.joined(separator: ", "))"))
+            return DirectClaudeClient.ToolOutput(text: "Gelöscht: \(removed.joined(separator: " | "))")
         default:
             return DirectClaudeClient.ToolOutput(text: "Unbekanntes Werkzeug \(name)", isError: true)
         }
@@ -555,8 +585,13 @@ final class SessionViewModel: ObservableObject {
     private func sendViaGateway(text: String, image: Data?) async {
         let mode = modeManager.activeMode
         // Modus-Kontext nur beim Wechsel mitschicken (die Konversation merkt ihn sich)
-        let prefix = lastGatewayMode == mode.id ? "" : "[Modus „\(mode.name)“: \(mode.systemPrompt)]\n\n"
+        var prefix = lastGatewayMode == mode.id ? "" : "[Modus „\(mode.name)“: \(mode.systemPrompt)]\n\n"
         lastGatewayMode = mode.id
+        // Gedächtnis einmal pro Gespräch (das Gateway merkt sich den Verlauf); Merken geht dort nur in der App
+        if config.memoryEnabled, !gatewayMemorySent, !memory.items.isEmpty {
+            prefix = MemoryStore.promptBlock(memory.texts) + "\n" + prefix
+        }
+        gatewayMemorySent = true
         do {
             let response = try await bridge.chatREST(text: prefix + text, images: image.map { [$0] } ?? [])
             transcript.append(TranscriptMessage(role: .assistant, text: response.text, toolCalls: response.tool_calls.map(\.name)))
@@ -648,6 +683,35 @@ final class SessionViewModel: ObservableObject {
         transcript.append(TranscriptMessage(role: .system, text: "⛔ Abgebrochen"))
     }
 
+    // MARK: - Gedächtnis
+
+    /// Merkliste an Claude am PC schicken (nur Channel; Direkt und Gateway bekommen sie mit der Frage)
+    private func syncMemory() {
+        gatewayMemorySent = false
+        Task {
+            do {
+                try await bridge.sendMemory(memory.texts, enabled: config.memoryEnabled)
+            } catch {
+                print("[Gedächtnis] Abgleich mit dem PC fehlgeschlagen: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Claude am PC hat sich etwas gemerkt oder vergessen
+    private func applyMemoryFromPC(op: String, items: [String]) {
+        guard config.memoryEnabled else { return }
+        switch op {
+        case "add":
+            items.forEach { memory.add($0, notify: false) }
+            transcript.append(TranscriptMessage(role: .system, text: "🧠 Gemerkt: \(items.joined(separator: ", "))"))
+        case "remove":
+            memory.remove(texts: items, notify: false)
+            transcript.append(TranscriptMessage(role: .system, text: "🧠 Vergessen: \(items.joined(separator: ", "))"))
+        default:
+            break
+        }
+    }
+
     // MARK: - Freigaben (Permission-Relay)
 
     private func handlePermissionRequest(_ request: PermissionRequest) {
@@ -689,6 +753,7 @@ final class SessionViewModel: ObservableObject {
         bridge.resetConversation()
         directClient.reset()
         lastGatewayMode = nil
+        gatewayMemorySent = false
         errorMessage = nil
     }
 }

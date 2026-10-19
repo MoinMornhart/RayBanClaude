@@ -562,7 +562,7 @@ struct ContentView: View {
 
     private var routeLabel: String {
         switch viewModel.route {
-        case .pc: return "PC"
+        case .pc: return viewModel.viaTailscale ? "PC · unterwegs" : "PC"
         case .direct: return "Direkt"
         case .none: return "Offline"
         }
@@ -570,7 +570,7 @@ struct ContentView: View {
 
     private var routeAccessibility: String {
         switch viewModel.route {
-        case .pc: return "Mit dem PC verbunden"
+        case .pc: return viewModel.viaTailscale ? "Unterwegs über Tailscale mit dem PC verbunden" : "Mit dem PC verbunden"
         case .direct: return "Ohne PC, direkt mit Claude verbunden"
         case .none: return "Nicht verbunden"
         }

@@ -87,6 +87,30 @@ if ($rule) {
         Write-Host "    $cmd" -ForegroundColor Cyan
     }
 }
+# ── 6. Unterwegs: Tailscale (optional) ─────────────────────────────────────────
+# Über Tailscale erreicht das iPhone den PC auch mit mobilen Daten – verschlüsselt,
+# ohne Port-Freigabe im Router. Die Regel gilt NUR für den Tailscale-Adapter und
+# nur für Geräte aus deinem eigenen Tailnet (100.64.0.0/10).
+Write-Step "Unterwegs (Tailscale)"
+$tailscale = Get-NetAdapter -Name 'Tailscale' -ErrorAction SilentlyContinue
+if (-not $tailscale) {
+    Write-Host "  Tailscale ist nicht installiert (optional)." -ForegroundColor Gray
+    Write-Host "  Für unterwegs über dein Claude-Abo: https://tailscale.com/download auf PC und iPhone" -ForegroundColor Gray
+    Write-Host "  installieren, mit demselben Konto anmelden und setup.cmd noch einmal starten." -ForegroundColor Gray
+} elseif (Get-NetFirewallRule -DisplayName 'RayBan Claude (Tailscale)' -ErrorAction SilentlyContinue) {
+    Write-Ok "Tailscale gefunden, Firewall-Regel vorhanden"
+} else {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $tsCmd = "New-NetFirewallRule -DisplayName 'RayBan Claude (Tailscale)' -Direction Inbound -Protocol TCP -LocalPort $Port -InterfaceAlias 'Tailscale' -RemoteAddress 100.64.0.0/10 -Action Allow"
+    if ($isAdmin -and (Ask "Tailscale gefunden – Port $Port für deine Tailscale-Geräte freigeben?")) {
+        Invoke-Expression $tsCmd | Out-Null
+        Write-Ok "Firewall-Regel für Tailscale angelegt"
+    } else {
+        Write-Warn "Für unterwegs in einer Administrator-PowerShell ausführen:"
+        Write-Host "    $tsCmd" -ForegroundColor Cyan
+    }
+}
+
 $profiles = Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { $_.NetworkCategory -eq 'Public' }
 if ($profiles) {
     Write-Warn "Dein WLAN ist als 'Öffentlich' eingestuft – dann blockt Windows das iPhone."
@@ -101,4 +125,5 @@ Write-Host "      (beim ersten Mal 'Use this MCP server' und 'I am using this fo
 Write-Host "   2. Das Dashboard öffnet sich: http://localhost:$Port"
 Write-Host "   3. iPhone-App installieren: siehe docs\IPHONE-OHNE-MAC.md (kostenlos, mit Sideloadly)"
 Write-Host "   4. QR-Code im Dashboard mit der iPhone-Kamera scannen – fertig."
+Write-Host "   5. Unterwegs: mit Tailscale steckt die Unterwegs-Adresse automatisch im QR-Code."
 Write-Host ""

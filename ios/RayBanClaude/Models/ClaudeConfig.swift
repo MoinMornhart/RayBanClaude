@@ -24,6 +24,8 @@ enum ConnectionMode: String, Codable, CaseIterable, Identifiable {
 
 struct ClaudeConfig: Codable, Equatable {
     var gatewayHost: String = ""
+    /// Adresse des PCs für unterwegs (Tailscale) – die App probiert sie, wenn das WLAN zu Hause nicht da ist
+    var remoteHost: String = ""
     var gatewayPort: Int = ClaudeConfig.defaultPort
     var connectionMode: ConnectionMode = .channel
     var videoFrameInterval: TimeInterval = 1.0
@@ -42,6 +44,8 @@ struct ClaudeConfig: Codable, Equatable {
     var directFallback: Bool = true
     /// Websuche im Direkt-Modus (Wetter, Öffnungszeiten …; kostet extra pro Suche)
     var webSearchEnabled: Bool = true
+    /// Gedächtnis: Claude merkt sich, was du ihm über dich erzählst (liegt nur auf diesem iPhone)
+    var memoryEnabled: Bool = true
 
     // Geheimnisse liegen im Schlüsselbund, nicht in den UserDefaults
     var channelToken: String = ""
@@ -66,9 +70,9 @@ struct ClaudeConfig: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case gatewayHost, gatewayPort, connectionMode, videoFrameInterval, videoJPEGQuality
+        case gatewayHost, remoteHost, gatewayPort, connectionMode, videoFrameInterval, videoJPEGQuality
         case speechPauseThreshold, elevenLabsVoiceId, speechLanguage, autoListen, wakeWordEnabled
-        case directModel, directFallback, webSearchEnabled
+        case directModel, directFallback, webSearchEnabled, memoryEnabled
     }
 
     var isConfigured: Bool { baseURL != nil && !channelToken.isEmpty }
@@ -101,6 +105,20 @@ struct ClaudeConfig: Codable, Equatable {
         return url(scheme: "http", path: path)
     }
 
+    /// Dieselben Einstellungen, aber mit einer anderen PC-Adresse (WLAN oder Tailscale)
+    func using(host: String) -> ClaudeConfig {
+        guard !host.isEmpty else { return self }
+        var copy = self
+        copy.gatewayHost = host
+        return copy
+    }
+
+    /// Ist für unterwegs eine zweite Adresse (Tailscale) hinterlegt?
+    var hasRemoteHost: Bool {
+        let remote = remoteHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !remote.isEmpty && remote != gatewayHost.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Speichern / Laden
 
     private static let storageKey = "RayBanClaudeConfig"
@@ -129,6 +147,7 @@ extension ClaudeConfig {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = ClaudeConfig()
         gatewayHost = try c.decodeIfPresent(String.self, forKey: .gatewayHost) ?? defaults.gatewayHost
+        remoteHost = try c.decodeIfPresent(String.self, forKey: .remoteHost) ?? defaults.remoteHost
         gatewayPort = try c.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? defaults.gatewayPort
         connectionMode = try c.decodeIfPresent(ConnectionMode.self, forKey: .connectionMode) ?? defaults.connectionMode
         videoFrameInterval = try c.decodeIfPresent(TimeInterval.self, forKey: .videoFrameInterval) ?? defaults.videoFrameInterval
@@ -141,5 +160,6 @@ extension ClaudeConfig {
         directModel = try c.decodeIfPresent(String.self, forKey: .directModel) ?? defaults.directModel
         directFallback = try c.decodeIfPresent(Bool.self, forKey: .directFallback) ?? defaults.directFallback
         webSearchEnabled = try c.decodeIfPresent(Bool.self, forKey: .webSearchEnabled) ?? defaults.webSearchEnabled
+        memoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .memoryEnabled) ?? defaults.memoryEnabled
     }
 }

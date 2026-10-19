@@ -38,6 +38,15 @@ export function listLanIps(): readonly LanIp[] {
     .sort((a, b) => a.rank - b.rank)
 }
 
+/**
+ * Tailscale-Adresse dieses PCs (100.64.0.0/10), falls Tailscale läuft. Darüber
+ * erreicht das iPhone den PC auch unterwegs – verschlüsselt, ohne Port-Freigabe.
+ */
+export function findTailscaleIp(ips: readonly LanIp[] = listLanIps()): string | undefined {
+  const byName = ips.find(ip => TAILSCALE_IFACE.test(ip.iface) && CGNAT_100.test(ip.address))
+  return (byName ?? ips.find(ip => CGNAT_100.test(ip.address)))?.address
+}
+
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 const IPV6_LOOPBACK = '::1'

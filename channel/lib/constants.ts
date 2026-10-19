@@ -59,6 +59,10 @@ export const WS_IDLE_TIMEOUT_SECONDS = 120
 export const PHONE_ACTION_TIMEOUT_MS = 25_000
 export const MAX_ACTION_RESULT_CHARS = 300
 
+// ── Gedächtnis ─────────────────────────────────────────────────────────────
+export const MAX_MEMORY_ITEMS = 200
+export const MAX_MEMORY_ITEM_CHARS = 300
+
 // ── Token ──────────────────────────────────────────────────────────────────
 export const TOKEN_BYTES = 24              // → 48 Hex-Zeichen
 export const TOKEN_PREVIEW_CHARS = 4

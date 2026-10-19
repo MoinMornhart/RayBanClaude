@@ -3,7 +3,7 @@
 
 const REFRESH_MS = 3000
 const COPY_FEEDBACK_MS = 1800
-const state = { token: '', port: 0, host: '' }
+const state = { token: '', port: 0, host: '', tailscale: '' }
 
 const $ = id => document.getElementById(id)
 
@@ -37,6 +37,21 @@ function renderPairing() {
   img.src = '/api/pair.svg?host=' + encodeURIComponent(state.host)
   img.onload = () => setStatus($('qr-hint'), 'Mit der iPhone-Kamera scannen')
   img.onerror = () => setStatus($('qr-hint'), 'QR-Code konnte nicht erzeugt werden', 'bad')
+  renderRemote()
+}
+
+/** Zeigt, ob das iPhone den PC auch unterwegs (über Tailscale) erreicht. */
+function renderRemote() {
+  const hint = $('remote-hint')
+  if (!state.tailscale) {
+    setStatus(hint, '🌍 Unterwegs: Tailscale nicht gefunden. Installiere Tailscale (kostenlos) auf PC und iPhone und lade diese Seite neu – siehe README „Unterwegs“.')
+    return
+  }
+  if (state.tailscale === state.host) {
+    setStatus(hint, '🌍 Du koppelst direkt über Tailscale (' + state.tailscale + ') – klappt zu Hause und unterwegs.', 'ok')
+    return
+  }
+  setStatus(hint, '🌍 Unterwegs: über Tailscale (' + state.tailscale + ') – steckt schon im QR-Code. Zu Hause nimmt die App das WLAN, unterwegs automatisch Tailscale.', 'ok')
 }
 
 function renderBadges(status) {
@@ -96,6 +111,7 @@ async function init() {
   const local = await res.json()
   state.token = local.token
   state.port = local.port
+  state.tailscale = local.tailscale || ''
   $('version').textContent = 'v' + local.version
 
   const select = $('ip-select')
@@ -117,7 +133,8 @@ async function init() {
     ev.target.textContent = shown ? 'Token verbergen' : 'Token zeigen'
   })
   $('btn-copy').addEventListener('click', ev =>
-    copyText('Host: ' + state.host + '\nPort: ' + state.port + '\nToken: ' + state.token, ev.target))
+    copyText('Host: ' + state.host + '\nPort: ' + state.port + '\nToken: ' + state.token
+      + (state.tailscale && state.tailscale !== state.host ? '\nUnterwegs (Tailscale): ' + state.tailscale : ''), ev.target))
   document.querySelectorAll('[data-copy]').forEach(btn =>
     btn.addEventListener('click', () => copyText($(btn.dataset.copy).textContent, btn)))
 
@@ -146,8 +163,9 @@ async function init() {
 
   $('btn-im').addEventListener('click', async () => {
     const status = $('im-status')
-    const message = 'RayBan Claude koppeln:\n' + 'raybanclaude://pair?' + new URLSearchParams({ host: state.host, port: String(state.port), token: state.token })
     try {
+      const { link } = await api('/api/pair-link?host=' + encodeURIComponent(state.host))
+      const message = 'RayBan Claude koppeln:\n' + link
       await api('/api/send-imessage', { method: 'POST', body: JSON.stringify({ recipient: $('im-recipient').value, message }) })
       setStatus(status, 'Gesendet ✓ – Link auf dem iPhone antippen', 'ok')
     } catch (e) { setStatus(status, e.message, 'bad') }

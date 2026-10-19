@@ -60,4 +60,5 @@ fi
 printf '\n  %s✅ Fertig!%s\n' "$green" "$reset"
 echo "   1. ./start.sh  – startet Claude Code mit RayBan Claude"
 echo "   2. Dashboard: http://localhost:$PORT – QR-Code mit der iPhone-Kamera scannen"
+echo "   3. Unterwegs (optional): Tailscale auf PC und iPhone – die Adresse steckt dann automatisch im QR-Code"
 echo

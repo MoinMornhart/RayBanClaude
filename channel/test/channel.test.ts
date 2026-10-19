@@ -25,6 +25,9 @@ const JSONRPC = '2.0'
 const PROTOCOL = '2025-06-18'
 const PERMISSION_ID = 'tbxkq'
 const TEN_MINUTES_SECONDS = 600
+/** Ein Wort, das genau einmal vorkommt, teilt den Text in zwei Teile. */
+const ONE_OCCURRENCE_PARTS = 2
+const NOT_A_STRING = 42
 /** Kleinstes Dummy-„JPEG“: Magic Bytes plus Füllbytes (der Server prüft nur den Header). */
 const FAKE_JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new Array(28).fill(0)]) // eslint-disable-line ts-patterns/no-magic-numbers
 
@@ -122,13 +125,13 @@ afterAll(() => {
 })
 
 describe('MCP-Seite', () => {
-  test('meldet Channel- und Permission-Capability sowie vier Tools', async () => {
+  test('meldet Channel- und Permission-Capability sowie sechs Tools', async () => {
     const init = received.find(m => m.id === 1)?.result ?? {}
     const caps = (init.capabilities ?? {}) as Record<string, Record<string, unknown>>
     expect(caps.experimental?.['claude/channel']).toEqual({})
     expect(caps.experimental?.['claude/channel/permission']).toEqual({})
     const tools = (await rpc('tools/list')).tools as { name: string }[]
-    expect(tools.map(t => t.name).sort()).toEqual(['edit_message', 'phone_action', 'reply', 'request_photo'])
+    expect(tools.map(t => t.name).sort()).toEqual(['edit_message', 'forget', 'phone_action', 'remember', 'reply', 'request_photo'])
   })
 })
 
@@ -254,6 +257,59 @@ describe('Handy-Aktionen (phone_action)', () => {
     const unknown = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'format_disk' } })
     expect(unknown.isError).toBe(true)
     expect(inbox.some(m => m.type === 'phone_action')).toBe(false)
+    ws.close()
+  })
+})
+
+describe('Gedächtnis', () => {
+  const channelMessage = (id: string): Promise<Record<string, unknown>> =>
+    notification('notifications/claude/channel', p => (p.meta as Record<string, string>)?.message_id === id)
+
+  test('Merkliste der App kommt mit der ersten Nachricht zu Claude – danach nicht noch einmal', async () => {
+    const { ws } = await openSocket()
+    ws.send(JSON.stringify({ type: 'memory_sync', items: ['Tochter heißt Mia', 'tochter heißt mia', NOT_A_STRING, 'Trinkt Espresso'] }))
+    ws.send(JSON.stringify({ id: 'mem-1', text: 'Hallo' }))
+    const first = String((await channelMessage('mem-1')).content)
+    expect(first).toContain('- Tochter heißt Mia')
+    expect(first).toContain('- Trinkt Espresso')
+    expect(first.split('Mia').length).toBe(ONE_OCCURRENCE_PARTS) // Doppelter Eintrag wurde entfernt
+    expect(first.endsWith('Hallo')).toBe(true)
+    ws.send(JSON.stringify({ id: 'mem-2', text: 'Und jetzt?' }))
+    expect((await channelMessage('mem-2')).content).toBe('Und jetzt?')
+    ws.close()
+  })
+
+  test('remember und forget ändern die Liste in der App', async () => {
+    const { ws, inbox } = await openSocket()
+    const saved = await rpc('tools/call', { name: 'remember', arguments: { fact: 'Fährt einen blauen Golf' } })
+    expect(saved.isError).toBeFalsy()
+    const add = await waitFor(() => inbox.find(m => m.type === 'memory' && m.op === 'add'), 'memory add')
+    expect(add.items).toEqual(['Fährt einen blauen Golf'])
+    const removed = await rpc('tools/call', { name: 'forget', arguments: { fact: 'espresso' } })
+    expect(JSON.stringify(removed.content)).toContain('Trinkt Espresso')
+    const remove = await waitFor(() => inbox.find(m => m.type === 'memory' && m.op === 'remove'), 'memory remove')
+    expect(remove.items).toEqual(['Trinkt Espresso'])
+    const nothing = await rpc('tools/call', { name: 'forget', arguments: { fact: 'Fallschirm' } })
+    expect(JSON.stringify(nothing.content)).toContain('nichts gespeichert')
+    ws.close()
+  })
+
+  test('geleerte Liste wird Claude mitgeteilt', async () => {
+    const { ws } = await openSocket()
+    ws.send(JSON.stringify({ type: 'memory_sync', items: [] }))
+    ws.send(JSON.stringify({ id: 'mem-3', text: 'Was weißt du über mich?' }))
+    expect(String((await channelMessage('mem-3')).content)).toContain('Merkliste geleert')
+    ws.close()
+  })
+
+  test('ausgeschaltetes Gedächtnis: nichts wird geschickt oder gemerkt', async () => {
+    const { ws, inbox } = await openSocket()
+    ws.send(JSON.stringify({ type: 'memory_sync', items: ['Geheimer Fakt'], enabled: false }))
+    ws.send(JSON.stringify({ id: 'mem-4', text: 'Hallo' }))
+    expect((await channelMessage('mem-4')).content).toBe('Hallo')
+    const refused = await rpc('tools/call', { name: 'remember', arguments: { fact: 'Mag Tee' } })
+    expect(refused.isError).toBe(true)
+    expect(inbox.some(m => m.type === 'memory')).toBe(false)
     ws.close()
   })
 })

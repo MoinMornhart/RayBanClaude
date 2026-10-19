@@ -1,7 +1,10 @@
 import Foundation
 
 /// Kopplungsdaten aus dem QR-Code im PC-Dashboard:
-/// `raybanclaude://pair?host=192.168.1.20&port=18790&token=…`
+/// `raybanclaude://pair?host=192.168.1.20&port=18790&token=…&remote=100.101.102.103`
+///
+/// `remote` (optional) ist die Tailscale-Adresse des PCs – darüber erreicht die App
+/// den PC auch unterwegs, also weiter über das Claude-Abo statt über einen API-Key.
 ///
 /// Wird vor dem Übernehmen immer bestätigt – ein fremder QR-Code könnte die App
 /// sonst unbemerkt auf einen fremden Server umleiten (und Kamerabilder dorthin schicken).
@@ -9,6 +12,8 @@ struct PairingRequest: Identifiable, Equatable {
     let host: String
     let port: Int
     let token: String
+    /// Adresse für unterwegs (Tailscale), falls der PC eine hat
+    let remote: String?
 
     var id: String { "\(host):\(port)" }
 
@@ -30,6 +35,8 @@ struct PairingRequest: Identifiable, Equatable {
         self.host = host
         self.port = port
         self.token = token
+        let remote = value("remote")
+        self.remote = remote.flatMap { Self.isValidHost($0) && $0 != host ? $0 : nil }
     }
 
     /// IPv4-Adresse oder einfacher Hostname (z. B. „mein-pc.local“)
