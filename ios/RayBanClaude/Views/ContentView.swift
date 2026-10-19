@@ -10,118 +10,168 @@ struct ContentView: View {
     @State private var pulse = false
 
     var body: some View {
+        layeredContent
+            .sheet(item: messageDraftBinding) { draft in
+                MessageComposeView(draft: draft) { viewModel.phoneActions.messageDraft = nil }
+                    .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView(viewModel: viewModel, rayBanManager: viewModel.rayBanManager, modeManager: viewModel.modeManager)
+            }
+            .alert("Mit PC koppeln?", isPresented: pairingBinding) {
+                Button("Koppeln") { viewModel.confirmPairing() }
+                Button("Abbrechen", role: .cancel) { viewModel.pendingPairing = nil }
+            } message: {
+                Text(pairingMessage)
+            }
+            .onChange(of: viewModel.modeManager.activeMode.id) { _, _ in showQuickActionsTemporarily() }
+            .onChange(of: viewModel.notice) { _, notice in hideNoticeLater(notice) }
+            .onAppear {
+                UIApplication.shared.isIdleTimerDisabled = true
+                if DemoMode.showSettings { showSettings = true }
+            }
+            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+            .task { await requestPermissionsAndConnect() }
+    }
+
+    // MARK: - Aufbau
+
+    private var layeredContent: some View {
         ZStack {
             cameraLayer.ignoresSafeArea()
-
-            VStack {
-                Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 460)
-            }
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-
-            VStack {
-                LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 140)
-                Spacer()
-            }
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-
-            VStack(spacing: 0) {
-                topBar.padding(.horizontal, 16).padding(.top, 4)
-                modeSelector.padding(.top, 6)
-                if !viewModel.phoneActions.timers.isEmpty {
-                    TimersBar(timers: viewModel.phoneActions.timers) { viewModel.phoneActions.cancel($0) }
-                        .padding(.top, 6)
-                }
-                if showQuickActions {
-                    quickActionBar.padding(.top, 6).transition(.opacity)
-                }
-                if !viewModel.config.isConfigured && !viewModel.config.hasDirectKey {
-                    pairingHint.padding(.horizontal, 16).padding(.top, 12)
-                }
-
-                Spacer()
-
-                if !viewModel.transcript.isEmpty {
-                    TranscriptView(messages: viewModel.transcript, fileRequest: viewModel.bridge.fileRequest)
-                        .frame(maxHeight: 300)
-                        .padding(.horizontal, 12)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                if !viewModel.currentTranscription.isEmpty {
-                    liveTranscriptionBanner.padding(.horizontal, 16).padding(.top, 8)
-                }
-                if let confirmation = viewModel.phoneActions.confirmation {
-                    ActionConfirmationCard(confirmation: confirmation,
-                                           onSelect: { viewModel.confirmAction($0) },
-                                           onCancel: { viewModel.dismissAction() })
-                        .padding(.horizontal, 16).padding(.top, 8)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                if let request = viewModel.pendingPermission {
-                    PermissionCard(request: request) { allow in
-                        Task { await viewModel.answerPermission(request, allow: allow) }
-                    }
-                    .padding(.horizontal, 16).padding(.top, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                if let code = viewModel.codeToast {
-                    codeToastBanner(code).padding(.horizontal, 16).padding(.top, 6)
-                }
-                if let notice = viewModel.notice {
-                    noticeBanner(notice).padding(.horizontal, 16).padding(.top, 6)
-                }
-                if let error = viewModel.errorMessage {
-                    errorBanner(error).padding(.horizontal, 16).padding(.top, 6)
-                }
-                textInputBar.padding(.horizontal, 16).padding(.top, 10)
-                bottomControls.padding(.vertical, 8)
-            }
-        }
-        .sheet(item: Binding(
-            get: { viewModel.phoneActions.messageDraft },
-            set: { viewModel.phoneActions.messageDraft = $0 }
-        )) { draft in
-            MessageComposeView(draft: draft) { viewModel.phoneActions.messageDraft = nil }
-                .ignoresSafeArea()
-        }
-        .onAppear { if DemoMode.showSettings { showSettings = true } }
-        .sheet(isPresented: $showSettings) {
-            SettingsView(viewModel: viewModel, rayBanManager: viewModel.rayBanManager, modeManager: viewModel.modeManager)
-        }
-        .alert("Mit PC koppeln?", isPresented: Binding(
-            get: { viewModel.pendingPairing != nil },
-            set: { if !$0 { viewModel.pendingPairing = nil } }
-        )) {
-            Button("Koppeln") { viewModel.confirmPairing() }
-            Button("Abbrechen", role: .cancel) { viewModel.pendingPairing = nil }
-        } message: {
-            Text("RayBan Claude verbindet sich mit \(viewModel.pendingPairing?.host ?? ""):\(viewModel.pendingPairing.map { String($0.port) } ?? ""). Nur bestätigen, wenn du den QR-Code gerade in deinem eigenen Dashboard gescannt hast.")
+            gradients
+            mainColumn
         }
         .animation(.easeInOut(duration: 0.25), value: viewModel.transcript.count)
         .animation(.easeInOut(duration: 0.2), value: viewModel.state)
         .animation(.easeInOut(duration: 0.2), value: viewModel.errorMessage)
         .animation(.easeInOut(duration: 0.2), value: viewModel.pendingPermission)
-        .onChange(of: viewModel.modeManager.activeMode.id) { _, _ in showQuickActionsTemporarily() }
-        .onChange(of: viewModel.notice) { _, notice in
-            guard notice != nil else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                if viewModel.notice == notice { viewModel.notice = nil }
+    }
+
+    private var gradients: some View {
+        ZStack {
+            VStack {
+                Spacer()
+                LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 460)
+            }
+            VStack {
+                LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 140)
+                Spacer()
             }
         }
-        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-        .task {
-            guard !hasRequestedPermissions, !DemoMode.isActive else { return }
-            hasRequestedPermissions = true
-            if await viewModel.speechManager.requestAuthorization() {
-                await viewModel.connect()
-            } else {
-                viewModel.errorMessage = "Mikrofon/Spracherkennung nicht erlaubt – in den iOS-Einstellungen freigeben"
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    private var mainColumn: some View {
+        VStack(spacing: 0) {
+            headerSection
+            Spacer()
+            cardsSection
+            textInputBar.padding(.horizontal, 16).padding(.top, 10)
+            bottomControls.padding(.vertical, 8)
+        }
+    }
+
+    private var headerSection: some View {
+        VStack(spacing: 0) {
+            topBar.padding(.horizontal, 16).padding(.top, 4)
+            modeSelector.padding(.top, 6)
+            if !viewModel.phoneActions.timers.isEmpty {
+                TimersBar(timers: viewModel.phoneActions.timers) { viewModel.phoneActions.cancel($0) }
+                    .padding(.top, 6)
             }
+            if showQuickActions {
+                quickActionBar.padding(.top, 6).transition(.opacity)
+            }
+            if !viewModel.config.isConfigured && !viewModel.config.hasDirectKey {
+                pairingHint.padding(.horizontal, 16).padding(.top, 12)
+            }
+        }
+    }
+
+    private var cardsSection: some View {
+        VStack(spacing: 0) {
+            if !viewModel.transcript.isEmpty {
+                TranscriptView(messages: viewModel.transcript, fileRequest: viewModel.bridge.fileRequest)
+                    .frame(maxHeight: 300)
+                    .padding(.horizontal, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if !viewModel.currentTranscription.isEmpty {
+                liveTranscriptionBanner.padding(.horizontal, 16).padding(.top, 8)
+            }
+            promptCards
+            bannerStack
+        }
+    }
+
+    /// Rückfragen: Anruf/Nachricht/Navigation und Werkzeug-Freigaben
+    private var promptCards: some View {
+        VStack(spacing: 0) {
+            if let confirmation = viewModel.phoneActions.confirmation {
+                ActionConfirmationCard(confirmation: confirmation,
+                                       onSelect: { viewModel.confirmAction($0) },
+                                       onCancel: { viewModel.dismissAction() })
+                    .padding(.horizontal, 16).padding(.top, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if let request = viewModel.pendingPermission {
+                PermissionCard(request: request) { allow in
+                    Task { await viewModel.answerPermission(request, allow: allow) }
+                }
+                .padding(.horizontal, 16).padding(.top, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
+    private var bannerStack: some View {
+        VStack(spacing: 0) {
+            if let code = viewModel.codeToast {
+                codeToastBanner(code).padding(.horizontal, 16).padding(.top, 6)
+            }
+            if let notice = viewModel.notice {
+                noticeBanner(notice).padding(.horizontal, 16).padding(.top, 6)
+            }
+            if let error = viewModel.errorMessage {
+                errorBanner(error).padding(.horizontal, 16).padding(.top, 6)
+            }
+        }
+    }
+
+    // MARK: - Bindungen und Abläufe
+
+    private var messageDraftBinding: Binding<MessageDraft?> {
+        Binding(get: { viewModel.phoneActions.messageDraft }, set: { viewModel.phoneActions.messageDraft = $0 })
+    }
+
+    private var pairingBinding: Binding<Bool> {
+        Binding(get: { viewModel.pendingPairing != nil }, set: { if !$0 { viewModel.pendingPairing = nil } })
+    }
+
+    private var pairingMessage: String {
+        let host = viewModel.pendingPairing?.host ?? ""
+        let port = viewModel.pendingPairing.map { String($0.port) } ?? ""
+        return "RayBan Claude verbindet sich mit \(host):\(port). Nur bestätigen, wenn du den QR-Code gerade in deinem eigenen Dashboard gescannt hast."
+    }
+
+    private func hideNoticeLater(_ notice: String?) {
+        guard notice != nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            if viewModel.notice == notice { viewModel.notice = nil }
+        }
+    }
+
+    private func requestPermissionsAndConnect() async {
+        guard !hasRequestedPermissions, !DemoMode.isActive else { return }
+        hasRequestedPermissions = true
+        if await viewModel.speechManager.requestAuthorization() {
+            await viewModel.connect()
+        } else {
+            viewModel.errorMessage = "Mikrofon/Spracherkennung nicht erlaubt – in den iOS-Einstellungen freigeben"
         }
     }
 
