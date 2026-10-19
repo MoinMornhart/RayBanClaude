@@ -38,7 +38,7 @@ struct DemoSceneView: View {
                                        endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 8))
             .shadow(color: .black.opacity(0.6), radius: 18, y: 10)
             .rotationEffect(.degrees(-3))
-            .offset(y: -150)
+            .offset(y: -190)
         }
     }
 

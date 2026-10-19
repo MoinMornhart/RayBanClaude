@@ -20,7 +20,7 @@ struct TranscriptView: View {
                 withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(lastId, anchor: .bottom) }
             }
         }
-        .background(.black.opacity(0.3))
+        .background(.black.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }

@@ -86,7 +86,7 @@ struct ContentView: View {
             if showQuickActions {
                 quickActionBar.padding(.top, 6).transition(.opacity)
             }
-            if !viewModel.config.isConfigured && !viewModel.config.hasDirectKey {
+            if !viewModel.canTalk && !viewModel.config.isConfigured && !viewModel.config.hasDirectKey {
                 pairingHint.padding(.horizontal, 16).padding(.top, 12)
             }
         }
@@ -207,6 +207,7 @@ struct ContentView: View {
             .onChange(of: viewModel.modeManager.activeMode.id) { _, newId in
                 withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(newId, anchor: .center) }
             }
+            .onAppear { proxy.scrollTo(viewModel.modeManager.activeMode.id, anchor: .center) }
         }
     }
 

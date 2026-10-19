@@ -178,6 +178,7 @@ final class PhoneActionHandler: NSObject, ObservableObject {
 
     /// Abgelaufene Einträge entfernen (z. B. nachdem die App im Hintergrund war)
     func refreshTimers() async {
+        guard !DemoMode.isActive else { return }
         let pending = Set(await center.pendingNotificationRequests().map(\.identifier))
         timers.removeAll { !pending.contains($0.id) && fallbackTasks[$0.id] == nil }
     }
