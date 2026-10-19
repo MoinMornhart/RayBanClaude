@@ -6,6 +6,11 @@ import MWDATCamera
 
 /// Kamera der Ray-Ban Meta (Gen 1 und Gen 2) über das Meta Wearables DAT SDK 1.x.
 ///
+/// Wie bei Meta AI filmt die Brille NICHT dauernd: Sie ist nur „bereit“. Erst wenn ein Foto
+/// gebraucht wird, startet die Kamera kurz (Sitzung → Kamera → Stream → Foto) und geht nach
+/// einer kurzen Nachlaufzeit wieder aus. Das schont Akku und Privatsphäre – und die Meta-AI-App
+/// kann die Brille dazwischen selbst nutzen.
+///
 /// Ablauf laut SDK: Registrierung → Kamera-Freigabe → DeviceSession starten →
 /// auf `.started` warten → Kamera hinzufügen → Audio (HFP) einrichten → Stream starten.
 @MainActor
@@ -42,14 +47,24 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
     private var deviceMonitorTask: Task<Void, Never>?
     private nonisolated let gate = FrameGate()
     private var photoWaiter: CheckedContinuation<Data?, Never>?
-    /// Brille soll laufen (für automatischen Neustart nach Bügel-Öffnen)
-    private var wantsStreaming = false
+    /// Brille ist als Bildquelle gewählt und bereit (Kamera startet nur bei Bedarf)
+    private var isArmed = false
+    private var idleStopTask: Task<Void, Never>?
+    /// Audio (HFP) wurde schon einmal eingerichtet und hatte Zeit, sich zu setzen
+    private var audioSettled = false
 
     /// Gen 2: 720p bei 15 fps liefert über Bluetooth sauberere Einzelbilder als 30 fps
     private let streamConfig = StreamConfiguration(videoCodec: .raw, resolution: .high, frameRate: 15)
     private let sessionStartTimeout: UInt64 = 20_000_000_000 // 20 s
     private let hfpSettleDelay: UInt64 = 2_000_000_000       // 2 s laut Meta-Doku
     private let photoTimeout: UInt64 = 12_000_000_000         // 12 s
+    /// So lange bleibt die Kamera nach einem Foto an (für schnelle Rückfragen), dann geht sie aus
+    private let cameraKeepAlive: UInt64 = 15_000_000_000      // 15 s
+    /// Maximal so lange auf einen laufenden Stream warten
+    private let streamReadyTimeout: TimeInterval = 15
+    /// Belichtung nach dem Kamerastart kurz einpendeln lassen
+    private let exposureSettleDelay: UInt64 = 400_000_000      // 0,4 s
+    private let pollInterval: UInt64 = 100_000_000             // 0,1 s
 
     private var wearables: any WearablesInterface { Wearables.shared }
 
@@ -115,28 +130,84 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
 
     // MARK: - FrameSource
 
+    /// Brille als Bildquelle wählen: prüft Registrierung und Kamera-Freigabe – filmt aber noch nicht.
     func start() throws {
-        wantsStreaming = true
+        isArmed = true
         guard startTask == nil, deviceSession == nil else { return } // läuft schon / startet gerade
+        Task { [weak self] in
+            guard let self, await self.ensureAccess(), self.isArmed, self.deviceSession == nil else { return }
+            self.connectionStatus = .standby
+        }
+    }
+
+    func stop() {
+        isArmed = false
+        idleStopTask?.cancel()
+        idleStopTask = nil
+        startTask?.cancel()
+        startTask = nil
+        teardown(status: .disconnected)
+    }
+
+    /// Nur ein frisches Bild aus einer gerade laufenden Aufnahme – nie ein altes
+    func consumeFrame() -> Data? {
+        isRunning ? latestFrame : nil
+    }
+
+    /// Kamera schon mal starten (z. B. während der Nutzer noch „Was steht auf …“ sagt)
+    func prepareCapture() {
+        guard isArmed else { return }
+        scheduleIdleStop()
+        // Läuft schon, startet gerade (Stream noch nicht „streaming“) oder Sitzung wird aufgebaut
+        guard camera == nil, startTask == nil else { return }
         startTask = Task { [weak self] in
             await self?.startStreaming()
             self?.startTask = nil
         }
     }
 
-    func stop() {
-        wantsStreaming = false
-        startTask?.cancel()
-        startTask = nil
-        teardown(status: .disconnected)
-    }
-
-    func consumeFrame() -> Data? {
-        latestFrame
-    }
-
-    /// Foto direkt auf der Brille auslösen (schärfer als ein Videobild).
+    /// Foto direkt auf der Brille auslösen (schärfer als ein Videobild). Startet die Kamera bei
+    /// Bedarf und schaltet sie nach einer kurzen Nachlaufzeit wieder ab.
     func capturePhoto() async -> Data? {
+        guard isArmed else { return nil }
+        if !isRunning {
+            prepareCapture()
+            idleStopTask?.cancel() // während des Starts nicht abschalten
+            guard await waitForStreaming() else {
+                scheduleIdleStop()
+                return nil
+            }
+            try? await Task.sleep(nanoseconds: exposureSettleDelay)
+        }
+        idleStopTask?.cancel()
+        let photo = await takePhoto()
+        scheduleIdleStop()
+        return photo
+    }
+
+    private func waitForStreaming() async -> Bool {
+        let deadline = Date().addingTimeInterval(streamReadyTimeout)
+        while Date() < deadline {
+            if isRunning { return true }
+            if case .error = connectionStatus, startTask == nil { return false }
+            try? await Task.sleep(nanoseconds: pollInterval)
+        }
+        return isRunning
+    }
+
+    /// Nach der Nachlaufzeit ohne weiteres Foto: Kamera und Sitzung wieder freigeben
+    private func scheduleIdleStop() {
+        idleStopTask?.cancel()
+        idleStopTask = Task { [weak self, cameraKeepAlive] in
+            try? await Task.sleep(nanoseconds: cameraKeepAlive)
+            guard !Task.isCancelled, let self, self.isArmed else { return }
+            self.startTask?.cancel()
+            self.startTask = nil
+            self.teardown(status: .standby)
+        }
+    }
+
+    private func takePhoto() async -> Data? {
         guard let stream = camera?.stream, stream.state == .streaming else { return latestFrame }
         photoWaiter?.resume(returning: nil)
         let photo: Data? = await withCheckedContinuation { continuation in
@@ -160,32 +231,36 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
 
     // MARK: - Ablauf
 
-    private func startStreaming() async {
+    /// SDK bereit, Brille registriert, Kamera freigegeben? (Freigabe öffnet ggf. einmalig die Meta-AI-App)
+    private func ensureAccess() async -> Bool {
         guard WearablesSupport.isConfigured else {
             connectionStatus = .error("Meta-SDK nicht verfügbar – App neu starten")
-            return
+            return false
         }
-        connectionStatus = .connecting
-
         guard wearables.registrationState == .registered else {
             connectionStatus = .error("Brille erst verbinden: Einstellungen → „Brille über Meta AI verbinden“")
             await register()
-            return
+            return false
         }
-
-        // 1. Kamera-Freigabe (öffnet ggf. die Meta-AI-App)
         do {
             if try await wearables.checkPermissionStatus(.camera) != .granted {
                 guard try await wearables.requestPermission(.camera) == .granted else {
                     connectionStatus = .error("Kamera-Freigabe abgelehnt – in der Meta-AI-App erlauben")
-                    return
+                    return false
                 }
             }
         } catch {
             connectionStatus = .error("Kamera-Freigabe nicht möglich: \(error.localizedDescription)")
-            return
+            return false
         }
-        guard !Task.isCancelled else { return }
+        return true
+    }
+
+    private func startStreaming() async {
+        connectionStatus = .connecting
+
+        // 1. Registrierung und Kamera-Freigabe
+        guard await ensureAccess(), !Task.isCancelled else { return }
 
         // 2. Geräte-Sitzung
         let session: DeviceSession
@@ -225,9 +300,12 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
         camera = cam
         subscribe(to: cam.stream)
 
-        // 4. Audio über die Brille (HFP) VOR dem Streamstart einrichten und kurz setzen lassen
+        // 4. Audio über die Brille (HFP) VOR dem Streamstart einrichten und beim ersten Mal kurz setzen lassen
         try? AudioSessionManager.shared.configureForVoiceChat()
-        try? await Task.sleep(nanoseconds: hfpSettleDelay)
+        if !audioSettled {
+            try? await Task.sleep(nanoseconds: hfpSettleDelay)
+            audioSettled = true
+        }
         guard !Task.isCancelled, camera != nil else { return }
         cam.stream.start()
     }
@@ -290,7 +368,10 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
             connectionStatus = .connecting
         case .stopped:
             isRunning = false
-            if connectionStatus == .connecting || connectionStatus == .connected {
+            if isArmed {
+                // Von außen beendet (z. B. Bügel zu) → sauber abbauen, das nächste Foto startet neu
+                teardown(status: connectionStatus.isReady || connectionStatus == .connecting ? .standby : connectionStatus)
+            } else if connectionStatus == .connecting || connectionStatus == .connected {
                 connectionStatus = .disconnected
             }
         @unknown default:
@@ -344,16 +425,12 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
     private func apply(_ state: DeviceState) {
         batteryLevel = state.batteryLevel
         hasActiveDevice = state.linkState == .connected
-        let wasClosed = hingesOpen == false
         switch state.hingeState {
         case .open: hingesOpen = true
         case .closed: hingesOpen = false
         default: hingesOpen = nil
         }
-        // Bügel wieder geöffnet → Sitzung ist beendet und muss neu aufgebaut werden
-        if wasClosed, hingesOpen == true, wantsStreaming, deviceSession == nil {
-            try? start()
-        }
+        // Kein automatischer Neustart mehr: die Kamera startet beim nächsten Foto ohnehin neu
     }
 
     static func modelName(_ type: DeviceType) -> String {

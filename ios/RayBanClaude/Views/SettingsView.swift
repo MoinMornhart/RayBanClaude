@@ -320,6 +320,8 @@ struct SettingsView: View {
             }
             Toggle("Weckwort „Hey Claude“ / „Claudi“", isOn: $viewModel.config.wakeWordEnabled)
             Toggle("Nach Antwort kurz weiter zuhören", isOn: $viewModel.config.autoListen)
+            Toggle("Bei gesperrtem iPhone weiterhören", isOn: $viewModel.config.listenWhenLocked)
+            Toggle("Display anlassen, solange die App offen ist", isOn: $viewModel.config.keepScreenOn)
 
             if viewModel.config.connectionMode != .channel {
                 LabeledContent("ElevenLabs-Key") {
@@ -338,7 +340,7 @@ struct SettingsView: View {
             Text("Sprache & Stimme")
         } footer: {
             Text((viewModel.config.wakeWordEnabled
-                  ? "Mit Weckwort hört die App freihändig zu, solange sie geöffnet ist – sag „Hey Claude“ oder „Claudi“ und dann deine Frage, z. B. „Hey Claude, stell einen Timer auf zehn Minuten“. Die Erkennung läuft nur auf dem iPhone. "
+                  ? "Mit Weckwort hört die App freihändig zu – wie bei Meta AI auch mit gesperrtem iPhone in der Tasche (oben rechts erscheint dann der orange Mikrofon-Punkt). Sag „Hey Claude“ oder „Claudi“ und dann deine Frage. Die Erkennung läuft nur auf dem iPhone. "
                   : "")
                  + (viewModel.config.connectionMode == .channel
                  ? "Standard ist die kostenlose iPhone-Stimme. Eine ElevenLabs-Stimme stellst du im PC-Dashboard ein. Tipp: Unter iOS-Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen eine „Premium“-Stimme laden – klingt deutlich natürlicher."

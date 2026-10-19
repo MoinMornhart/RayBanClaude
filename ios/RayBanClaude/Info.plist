@@ -28,6 +28,14 @@
 	<string>RayBan Claude braucht das Mikrofon, damit du per Sprache mit Claude reden kannst.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>RayBan Claude wandelt deine Sprache auf dem iPhone in Text um.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Für „Erinnere mich morgen um 9 an …“ legt RayBan Claude Einträge in deiner Erinnerungen-App an.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Für „Erinnere mich morgen um 9 an …“ legt RayBan Claude Einträge in deiner Erinnerungen-App an.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Für „Mach ein Foto“ speichert RayBan Claude das Foto der Brille in deiner Mediathek.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Für „Wo bin ich?“ und „Merk dir, wo ich geparkt habe“ fragt RayBan Claude einmalig den Standort ab – nur auf Zuruf.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Damit „Ruf Mama an“ funktioniert, sucht RayBan Claude den Namen in deinen Kontakten – nur auf dem iPhone, Nummern gehen nicht an Claude.</string>
 	<key>NSLocalNetworkUsageDescription</key>

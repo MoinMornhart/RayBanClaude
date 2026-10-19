@@ -275,6 +275,7 @@ final class ClaudeBridge: NSObject, ObservableObject {
                 id: id, kind: kind,
                 durationSeconds: json["duration_seconds"] as? Int,
                 time: json["time"] as? String,
+                date: json["date"] as? String,
                 label: json["label"] as? String,
                 contact: json["contact"] as? String,
                 number: json["number"] as? String,

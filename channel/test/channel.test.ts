@@ -246,6 +246,30 @@ describe('Handy-Aktionen (phone_action)', () => {
     ws.close()
   })
 
+  test('Erinnerung, Foto sichern und Standort gehen an die App', async () => {
+    const { ws, inbox } = await openSocket()
+    const answer = (action: Record<string, unknown>): void =>
+      ws.send(JSON.stringify({ type: 'action_result', id: action.id, ok: true, message: `${String(action.action)} erledigt` }))
+
+    const reminder = rpc('tools/call', { name: 'phone_action', arguments: { action: 'reminder', text: 'Zahnarzt', date: '2026-10-20', time: '09:00' } })
+    const sentReminder = await waitFor(() => inbox.find(m => m.action === 'reminder'), 'reminder')
+    expect(sentReminder.text).toBe('Zahnarzt')
+    expect(sentReminder.date).toBe('2026-10-20')
+    answer(sentReminder)
+    expect((await reminder).isError).toBeFalsy()
+
+    const photo = rpc('tools/call', { name: 'phone_action', arguments: { action: 'save_photo' } })
+    answer(await waitFor(() => inbox.find(m => m.action === 'save_photo'), 'save_photo'))
+    expect((await photo).isError).toBeFalsy()
+
+    const place = rpc('tools/call', { name: 'phone_action', arguments: { action: 'location', label: 'Auto geparkt' } })
+    const sentPlace = await waitFor(() => inbox.find(m => m.action === 'location'), 'location')
+    expect(sentPlace.label).toBe('Auto geparkt')
+    answer(sentPlace)
+    expect(JSON.stringify((await place).content)).toContain('erledigt')
+    ws.close()
+  })
+
   test('ungültige Eingaben werden abgewiesen, bevor etwas ans Handy geht', async () => {
     const { ws, inbox } = await openSocket()
     const zero = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'timer', duration_seconds: 0 } })
@@ -256,6 +280,10 @@ describe('Handy-Aktionen (phone_action)', () => {
     expect(noTarget.isError).toBe(true)
     const unknown = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'format_disk' } })
     expect(unknown.isError).toBe(true)
+    const badDate = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'reminder', text: 'Zahnarzt', date: '20.10.2026' } })
+    expect(badDate.isError).toBe(true)
+    const noText = await rpc('tools/call', { name: 'phone_action', arguments: { action: 'reminder', time: '09:00' } })
+    expect(noText.isError).toBe(true)
     expect(inbox.some(m => m.type === 'phone_action')).toBe(false)
     ws.close()
   })

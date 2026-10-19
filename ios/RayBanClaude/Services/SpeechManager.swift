@@ -134,7 +134,11 @@ final class SpeechManager: NSObject, ObservableObject {
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    /// Die Aufnahme läuft durch (auch bei gesperrtem iPhone) – nur die Erkennung wechselt.
+    /// Früher wurde sie nach jedem Satz gestoppt; im Hintergrund darf iOS sie dann nicht neu starten.
     private let audioEngine = AVAudioEngine()
+    private let sink = RecognitionSink()
+    private var tapInstalled = false
     private var languageCode: String = ClaudeConfig.defaultLanguage
 
     private var elevenLabsClient: ElevenLabsTTSClient?
@@ -161,6 +165,10 @@ final class SpeechManager: NSObject, ObservableObject {
         super.init()
         appleSynthesizer.delegate = self
         setLanguage(languageCode)
+        // Brille verbunden/getrennt, Anruf o. Ä.: Das Eingangsformat ändert sich, die Aufnahme muss neu aufgesetzt werden
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.engineConfigurationChanged() }
+        }
     }
 
     // MARK: Einstellungen
@@ -211,7 +219,7 @@ final class SpeechManager: NSObject, ObservableObject {
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             throw SpeechError.recognizerUnavailable(languageCode)
         }
-        try AudioSessionManager.shared.configureForVoiceChat()
+        try ensureEngineRunning()
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -221,18 +229,7 @@ final class SpeechManager: NSObject, ObservableObject {
             request.requiresOnDeviceRecognition = true // Datenschutz: Sprache verlässt das iPhone nicht
         }
         recognitionRequest = request
-
-        let inputNode = audioEngine.inputNode
-        // Tatsächliches Format der aktiven Route (iPhone 48 kHz, Brille/HFP 8–16 kHz)
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.channelCount > 0, format.sampleRate > 0 else {
-            throw SpeechError.inputNotReady
-        }
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak request] buffer, _ in
-            request?.append(buffer)
-        }
-        audioEngine.prepare()
-        try audioEngine.start()
+        sink.set(request)
 
         generation += 1
         let session = generation
@@ -272,14 +269,61 @@ final class SpeechManager: NSObject, ObservableObject {
         noSpeechTimer = nil
         standbyRefreshTimer?.invalidate()
         standbyRefreshTimer = nil
-        if audioEngine.isRunning { audioEngine.stop() }
-        audioEngine.inputNode.removeTap(onBus: 0)
+        sink.set(nil) // Aufnahme läuft weiter, geht aber an keine Erkennung mehr
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
         listenMode = nil
         transcribedText = ""
+    }
+
+    // MARK: Aufnahme (läuft durch, solange zugehört wird)
+
+    /// Aufnahme starten, falls sie noch nicht läuft – mit dem Format der aktiven Route
+    /// (iPhone 48 kHz, Brille/HFP 8–16 kHz).
+    private func ensureEngineRunning() throws {
+        try AudioSessionManager.shared.configureForVoiceChat()
+        if !tapInstalled {
+            let inputNode = audioEngine.inputNode
+            let format = inputNode.outputFormat(forBus: 0)
+            guard format.channelCount > 0, format.sampleRate > 0 else {
+                throw SpeechError.inputNotReady
+            }
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [sink] buffer, _ in
+                sink.append(buffer)
+            }
+            tapInstalled = true
+        }
+        if !audioEngine.isRunning {
+            audioEngine.prepare()
+            try audioEngine.start()
+        }
+    }
+
+    /// Mikrofon ganz freigeben (kein Weckwort, App getrennt) – dann verschwindet auch der orange Punkt
+    func releaseMicrophone() {
+        stopListening()
+        if audioEngine.isRunning { audioEngine.stop() }
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+    }
+
+    /// Route oder Format hat sich geändert – Aufnahme neu aufsetzen und dort weitermachen, wo wir waren
+    private func engineConfigurationChanged() {
+        let mode = listenMode
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        if audioEngine.isRunning { audioEngine.stop() }
+        switch mode {
+        case .standby: enterStandby()
+        case .command: handleRecognitionEnd()
+        case nil: break
+        }
     }
 
     private func handleTranscript(_ text: String, isFinal: Bool) {
@@ -438,6 +482,26 @@ final class SpeechManager: NSObject, ObservableObject {
 extension SpeechManager: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in self.finishSpeaking() }
+    }
+}
+
+/// Reicht die Audio-Puffer der durchlaufenden Aufnahme an die gerade aktive Erkennung weiter.
+/// Wird vom Audio-Thread aufgerufen – daher mit Sperre statt Main-Actor.
+final class RecognitionSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+
+    func set(_ request: SFSpeechAudioBufferRecognitionRequest?) {
+        lock.lock()
+        self.request = request
+        lock.unlock()
+    }
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        let current = request
+        lock.unlock()
+        current?.append(buffer)
     }
 }
 

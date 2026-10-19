@@ -112,6 +112,10 @@ export const PERMISSION_ID = /^[a-km-z]{5}$/
 // https://regex101.com/?flavor=javascript&regex=%5E%28%5B01%5D%3F%5Cd%7C2%5B0-3%5D%29%3A%5B0-5%5D%5Cd%24&flags=m&testString=07%3A30%0A23%3A59%0A6%3A05%0A24%3A00%0A7.30%0A07%3A60
 export const CLOCK_TIME = /^([01]?\d|2[0-3]):[0-5]\d$/
 
+// Datum im Format JJJJ-MM-TT (für Erinnerungen). Passt: "2026-10-20", "2027-01-31"; lehnt ab: "20.10.2026", "2026-13-01", "26-10-20".
+// https://regex101.com/?flavor=javascript&regex=%5E20%5Cd%7B2%7D-%280%5B1-9%5D%7C1%5B0-2%5D%29-%280%5B1-9%5D%7C%5B12%5D%5Cd%7C3%5B01%5D%29%24&flags=m&testString=2026-10-20%0A2027-01-31%0A20.10.2026%0A2026-13-01%0A26-10-20
+export const ISO_DATE = /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
+
 // WLAN-Adapter (wird bevorzugt, weil das Handy meist im WLAN hängt). Passt: "WLAN", "Wi-Fi", "en0"; lehnt ab: "Ethernet 2".
 // https://regex101.com/?flavor=javascript&regex=wi-%3Ffi%7Cwlan%7Cwireless%7Cen0&flags=im&testString=WLAN%0AWi-Fi%0Aen0%0AEthernet%202
 export const WIFI_IFACE = /wi-?fi|wlan|wireless|en0/i

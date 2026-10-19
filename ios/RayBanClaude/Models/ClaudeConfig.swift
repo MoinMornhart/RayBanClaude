@@ -46,6 +46,10 @@ struct ClaudeConfig: Codable, Equatable {
     var webSearchEnabled: Bool = true
     /// Gedächtnis: Claude merkt sich, was du ihm über dich erzählst (liegt nur auf diesem iPhone)
     var memoryEnabled: Bool = true
+    /// Hosentaschen-Modus: auch bei gesperrtem iPhone auf „Hey Claude“ hören (wie Meta AI)
+    var listenWhenLocked: Bool = true
+    /// Display nicht automatisch sperren, solange die App offen ist (braucht mehr Akku)
+    var keepScreenOn: Bool = false
 
     // Geheimnisse liegen im Schlüsselbund, nicht in den UserDefaults
     var channelToken: String = ""
@@ -72,7 +76,7 @@ struct ClaudeConfig: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case gatewayHost, remoteHost, gatewayPort, connectionMode, videoFrameInterval, videoJPEGQuality
         case speechPauseThreshold, elevenLabsVoiceId, speechLanguage, autoListen, wakeWordEnabled
-        case directModel, directFallback, webSearchEnabled, memoryEnabled
+        case directModel, directFallback, webSearchEnabled, memoryEnabled, listenWhenLocked, keepScreenOn
     }
 
     var isConfigured: Bool { baseURL != nil && !channelToken.isEmpty }
@@ -161,5 +165,7 @@ extension ClaudeConfig {
         directFallback = try c.decodeIfPresent(Bool.self, forKey: .directFallback) ?? defaults.directFallback
         webSearchEnabled = try c.decodeIfPresent(Bool.self, forKey: .webSearchEnabled) ?? defaults.webSearchEnabled
         memoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .memoryEnabled) ?? defaults.memoryEnabled
+        listenWhenLocked = try c.decodeIfPresent(Bool.self, forKey: .listenWhenLocked) ?? defaults.listenWhenLocked
+        keepScreenOn = try c.decodeIfPresent(Bool.self, forKey: .keepScreenOn) ?? defaults.keepScreenOn
     }
 }

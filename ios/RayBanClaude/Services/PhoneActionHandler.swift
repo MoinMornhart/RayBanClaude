@@ -1,6 +1,9 @@
 import Foundation
 import Contacts
+import CoreLocation
+import EventKit
 import MessageUI
+import Photos
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -10,13 +13,15 @@ import UserNotifications
 /// Aktion, die Claude per Tool `phone_action` auf dem iPhone auslöst
 struct PhoneAction: Identifiable {
     enum Kind: String {
-        case timer, alarm, cancel_timer, call, message, navigate
+        case timer, alarm, cancel_timer, call, message, navigate, reminder, save_photo, location
     }
 
     let id: String
     let kind: Kind
     var durationSeconds: Int?
     var time: String?
+    /// Erinnerung: Tag als JJJJ-MM-TT
+    var date: String?
     var label: String?
     var contact: String?
     var number: String?
@@ -76,9 +81,15 @@ final class PhoneActionHandler: NSObject, ObservableObject {
 
     /// Timer/Wecker abgelaufen, während die App offen ist → ansagen
     var onTimerFired: ((RunningTimer) -> Void)?
+    /// Liefert das Foto, das Claude gerade gesehen hat (oder macht ein neues) – für save_photo
+    var latestPhoto: (() async -> Data?)?
+    /// Gedächtnis für „Merk dir, wo ich geparkt habe“
+    weak var memory: MemoryStore?
 
     private let center = UNUserNotificationCenter.current()
     private let contactStore = CNContactStore()
+    private let eventStore = EKEventStore()
+    private let locator = LocationProvider()
     private var fallbackTasks: [String: Task<Void, Never>] = [:]
     private static let idPrefix = "raybanclaude.timer."
 
@@ -116,8 +127,113 @@ final class PhoneActionHandler: NSObject, ObservableObject {
             confirmation = ActionConfirmation(kind: .navigate, title: "Route nach „\(destination)“ starten?",
                                               options: [.init(label: "Route starten", value: destination)])
             return ActionResult(ok: true, message: "Rückfrage auf dem iPhone angezeigt: Route nach \(destination)")
+        case .reminder:
+            guard let text = action.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+                return ActionResult(ok: false, message: "Woran soll ich erinnern?")
+            }
+            return await addReminder(title: text, date: action.date, time: action.time)
+        case .save_photo:
+            return await savePhoto()
+        case .location:
+            return await locate(label: action.label)
         }
     }
+
+    // MARK: Erinnerungen (App „Erinnerungen“)
+
+    private func addReminder(title: String, date: String?, time: String?) async -> ActionResult {
+        let granted = (try? await eventStore.requestFullAccessToReminders()) ?? false
+        guard granted else {
+            return ActionResult(ok: false, message: "Kein Zugriff auf Erinnerungen – in den iOS-Einstellungen für RayBan Claude erlauben")
+        }
+        guard let list = eventStore.defaultCalendarForNewReminders() else {
+            return ActionResult(ok: false, message: "Keine Erinnerungsliste gefunden")
+        }
+        let reminder = EKReminder(eventStore: eventStore)
+        reminder.title = String(title.prefix(200))
+        reminder.calendar = list
+        let due = Self.dueDate(date: date, time: time)
+        if let due {
+            reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: due)
+            reminder.addAlarm(EKAlarm(absoluteDate: due))
+        }
+        do {
+            try eventStore.save(reminder, commit: true)
+        } catch {
+            print("[Aktion] Erinnerung nicht gespeichert: \(error.localizedDescription)")
+            return ActionResult(ok: false, message: "Erinnerung konnte nicht gespeichert werden")
+        }
+        let when = due.map { " für \(Self.dueFormatter.string(from: $0)) Uhr" } ?? ""
+        return ActionResult(ok: true, message: "Erinnerung „\(reminder.title ?? title)“\(when) gespeichert")
+    }
+
+    /// Fälligkeit aus „JJJJ-MM-TT“ und/oder „HH:MM“ (nur Datum → 9 Uhr, nur Uhrzeit → nächstes Vorkommen)
+    static func dueDate(date: String?, time: String?) -> Date? {
+        let clock = (time ?? "").split(separator: ":").compactMap { Int($0) }
+        let hasTime = clock.count == 2 && (0...23).contains(clock[0]) && (0...59).contains(clock[1])
+        guard let date, !date.isEmpty else {
+            return hasTime ? nextOccurrence(of: time)?.date : nil
+        }
+        let day = date.split(separator: "-").compactMap { Int($0) }
+        guard day.count == 3 else { return nil }
+        let components = DateComponents(year: day[0], month: day[1], day: day[2],
+                                        hour: hasTime ? clock[0] : 9, minute: hasTime ? clock[1] : 0)
+        return Calendar.current.date(from: components)
+    }
+
+    private static let dueFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "de_DE")
+        f.dateFormat = "EEEE, d. MMMM, HH:mm"
+        return f
+    }()
+
+    // MARK: Foto in der Mediathek sichern
+
+    private func savePhoto() async -> ActionResult {
+        guard let data = await latestPhoto?() else {
+            return ActionResult(ok: false, message: "Kein Foto vorhanden – ist die Kamera bereit?")
+        }
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            return ActionResult(ok: false, message: "Kein Zugriff auf Fotos – in den iOS-Einstellungen für RayBan Claude erlauben")
+        }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
+            }
+            return ActionResult(ok: true, message: "Foto in der Mediathek gespeichert")
+        } catch {
+            print("[Aktion] Foto nicht gespeichert: \(error.localizedDescription)")
+            return ActionResult(ok: false, message: "Foto konnte nicht gespeichert werden")
+        }
+    }
+
+    // MARK: Standort („Wo bin ich?“, „Merk dir, wo ich geparkt habe“)
+
+    private func locate(label: String?) async -> ActionResult {
+        let place: String
+        do {
+            place = try await locator.currentAddress()
+        } catch {
+            return ActionResult(ok: false, message: error.localizedDescription)
+        }
+        guard let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else {
+            return ActionResult(ok: true, message: "Aktueller Standort: \(place)")
+        }
+        let stamp = Self.stampFormatter.string(from: Date())
+        guard memory?.add("\(label): \(place) (\(stamp))") != nil else {
+            return ActionResult(ok: true, message: "Standort: \(place) – Gedächtnis ist aus, nicht gespeichert")
+        }
+        return ActionResult(ok: true, message: "Gemerkt – \(label): \(place)")
+    }
+
+    private static let stampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "de_DE")
+        f.dateFormat = "d.M., HH:mm 'Uhr'"
+        return f
+    }()
 
     // MARK: Timer und Wecker
 

@@ -39,14 +39,18 @@ protocol FrameSource: AnyObject {
     func start() throws
     func stop()
     func consumeFrame() -> Data?
-    /// Ein frisches, möglichst scharfes Foto (für das Tool request_photo)
+    /// Ein frisches, möglichst scharfes Foto (startet die Kamera bei Bedarf kurz)
     func capturePhoto() async -> Data?
+    /// Kamera schon mal aufwecken – z. B. sobald „Was ist das …“ erkannt wird
+    func prepareCapture()
 }
 
 enum FrameSourceStatus: Equatable {
     case disconnected
     case connecting
     case connected
+    /// Bereit, Kamera aus – fotografiert nur auf Zuruf (Brille)
+    case standby
     case error(String)
 
     var label: String {
@@ -54,7 +58,16 @@ enum FrameSourceStatus: Equatable {
         case .disconnected: return "Getrennt"
         case .connecting: return "Verbinde …"
         case .connected: return "Verbunden"
+        case .standby: return "Bereit – Kamera nur auf Zuruf"
         case .error(let msg): return msg
+        }
+    }
+
+    /// Verbunden oder bereit für ein Foto
+    var isReady: Bool {
+        switch self {
+        case .connected, .standby: return true
+        default: return false
         }
     }
 

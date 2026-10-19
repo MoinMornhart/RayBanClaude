@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 import UIKit
 import MWDATCore
 
@@ -72,6 +73,10 @@ final class SessionViewModel: ObservableObject {
     private var lastGatewayMode: String?
     /// Gateway-Gespräch kennt das Gedächtnis schon
     private var gatewayMemorySent = false
+    /// Das Foto, das Claude zuletzt bekommen hat (für „Mach ein Foto“ → in der Mediathek sichern)
+    private var lastPhoto: (data: Data, date: Date)?
+    /// So lange gilt das letzte Foto noch als „das Foto von eben“
+    private let lastPhotoValidity: TimeInterval = 120
     /// Weg der Frage, die gerade bearbeitet wird
     private var processingRoute: Route = .none
 
@@ -131,6 +136,7 @@ final class SessionViewModel: ObservableObject {
         speechManager.setPauseThreshold(config.speechPauseThreshold)
         speechManager.configureElevenLabs(apiKey: config.elevenLabsAPIKey, voiceId: config.elevenLabsVoiceId)
         speechManager.wakeWordEnabled = config.wakeWordEnabled
+        phoneActions.memory = config.memoryEnabled ? memory : nil
         cameraManager.configure(frameInterval: config.videoFrameInterval, jpegQuality: config.videoJPEGQuality)
         rayBanManager.configure(frameInterval: config.videoFrameInterval, jpegQuality: config.videoJPEGQuality)
     }
@@ -165,7 +171,14 @@ final class SessionViewModel: ObservableObject {
             .store(in: &cancellables)
 
         speechManager.$transcribedText
-            .sink { [weak self] text in self?.currentTranscription = text }
+            .sink { [weak self] text in
+                guard let self else { return }
+                self.currentTranscription = text
+                // Kamera schon wecken, während die Frage noch läuft („Was steht auf dem …“) – spart Wartezeit
+                if self.speechManager.listenMode == .command, VisionIntent.needsImage(text) {
+                    self.activeSource.prepareCapture()
+                }
+            }
             .store(in: &cancellables)
 
         cameraManager.$lastDetectedCode
@@ -205,7 +218,7 @@ final class SessionViewModel: ObservableObject {
             if route == .direct {
                 activateDirect()
             } else if state != .disconnected {
-                speechManager.stopListening()
+                speechManager.releaseMicrophone()
                 state = .disconnected
             }
         }
@@ -272,6 +285,13 @@ final class SessionViewModel: ObservableObject {
     }
 
     private func setupPhoneActions() {
+        phoneActions.latestPhoto = { [weak self] in
+            guard let self else { return nil }
+            if let recent = self.lastPhoto, Date().timeIntervalSince(recent.date) < self.lastPhotoValidity {
+                return recent.data
+            }
+            return await self.takePhoto()
+        }
         phoneActions.onTimerFired = { [weak self] timer in
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
             let text = timer.isAlarm ? "Wecker: \(timer.label)." : "Dein Timer \(timer.label) ist abgelaufen."
@@ -302,9 +322,28 @@ final class SessionViewModel: ObservableObject {
         if canTalk && config.wakeWordEnabled {
             speechManager.enterStandby()
         } else {
-            speechManager.stopListening()
+            speechManager.releaseMicrophone() // ohne Weckwort braucht niemand das Mikrofon
         }
         state = isProcessing ? .thinking : restingState
+    }
+
+    // MARK: - Vordergrund / Hintergrund
+
+    /// Gesperrt oder in der Tasche: Mit Hosentaschen-Modus hört die App über die Brille weiter
+    /// (Hintergrund-Audio), sonst gibt sie das Mikrofon frei. Zurück im Vordergrund geht es weiter.
+    func scenePhaseChanged(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            if !config.listenWhenLocked {
+                speechManager.releaseMicrophone()
+                if state == .standby || state == .listening { state = .idle }
+            }
+        case .active:
+            Task { await phoneActions.refreshTimers() }
+            if !speechManager.isSpeaking, !speechManager.isListening, state != .disconnected { goIdle() }
+        default:
+            break
+        }
     }
 
     // MARK: - Verbindung
@@ -331,7 +370,7 @@ final class SessionViewModel: ObservableObject {
     }
 
     func disconnect() {
-        speechManager.stopListening()
+        speechManager.releaseMicrophone()
         speechManager.stopSpeaking()
         cameraManager.stop()
         rayBanManager.stop()
@@ -504,8 +543,9 @@ final class SessionViewModel: ObservableObject {
         isProcessing = true
         processingRoute = currentRoute
         errorMessage = nil
-        let image = activeSource.consumeFrame()
         goIdle() // während Claude nachdenkt, reagiert die App weiter auf „Hey Claude“
+        // Wie Meta AI: Foto nur, wenn die Frage eins braucht – sonst bleibt die Kamera aus
+        let image = VisionIntent.needsImage(text) ? await photoForQuestion() : nil
 
         if currentRoute == .direct {
             await sendDirect(text: text, image: image)
@@ -520,6 +560,29 @@ final class SessionViewModel: ObservableObject {
         } else {
             await sendViaGateway(text: text, image: image)
         }
+    }
+
+    /// Foto für eine Frage: iPhone-Sucher → aktuelles Bild; Brille → kurz Kamera an, Foto, wieder aus
+    private func photoForQuestion() async -> Data? {
+        if activeFrameSource == .iPhone, let frame = activeSource.consumeFrame() {
+            lastPhoto = (frame, Date())
+            return frame
+        }
+        let photo = await takePhoto()
+        if photo == nil {
+            notice = activeFrameSource == .rayBan
+                ? "Brille konnte kein Foto machen – ich frage ohne Bild"
+                : "Kein Kamerabild – ich frage ohne Bild"
+        }
+        return photo
+    }
+
+    /// Frisches Foto aufnehmen und als „Foto von eben“ merken
+    private func takePhoto() async -> Data? {
+        guard let photo = await activeSource.capturePhoto() else { return nil }
+        lastPhoto = (photo, Date())
+        transcript.append(TranscriptMessage(role: .system, text: "📸 Foto an Claude"))
+        return photo
     }
 
     /// Ohne PC: direkt an die Claude-API; Handy-Aktionen und Fotos laufen lokal
@@ -542,10 +605,9 @@ final class SessionViewModel: ObservableObject {
     private func executeDirectTool(name: String, input: [String: Any]) async -> DirectClaudeClient.ToolOutput {
         switch name {
         case "take_photo":
-            guard let photo = await activeSource.capturePhoto() else {
-                return DirectClaudeClient.ToolOutput(text: "Kein Kamerabild verfügbar", isError: true)
+            guard let photo = await takePhoto() else {
+                return DirectClaudeClient.ToolOutput(text: "Kein Kamerabild verfügbar (Brille nicht bereit oder iPhone-Kamera aus)", isError: true)
             }
-            transcript.append(TranscriptMessage(role: .system, text: "📸 Foto an Claude gesendet"))
             return DirectClaudeClient.ToolOutput(text: "Aktuelles Foto", imageJPEG: photo)
         case "phone_action":
             guard let kind = (input["action"] as? String).flatMap(PhoneAction.Kind.init(rawValue:)) else {
@@ -555,6 +617,7 @@ final class SessionViewModel: ObservableObject {
                 id: UUID().uuidString, kind: kind,
                 durationSeconds: input["duration_seconds"] as? Int,
                 time: input["time"] as? String,
+                date: input["date"] as? String,
                 label: input["label"] as? String,
                 contact: input["contact"] as? String,
                 number: input["number"] as? String,
@@ -645,14 +708,13 @@ final class SessionViewModel: ObservableObject {
     private func handleCaptureRequest(id: String, reason: String?) async {
         notice = "📸 Claude macht ein Foto" + (reason.map { ": \($0)" } ?? "")
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        guard let photo = await activeSource.capturePhoto() else {
-            errorMessage = "Foto nicht möglich – ist die Kamera aktiv?"
-            return
-        }
-        transcript.append(TranscriptMessage(role: .system, text: "📸 Foto an Claude gesendet" + (reason.map { " (\($0))" } ?? "")))
+        let photo = await takePhoto()
+        if photo == nil { notice = "Foto nicht möglich – Brille bereit?" }
         do {
-            try await bridge.send(.init(id: "photo-\(UUID().uuidString.prefix(8))", text: "", source: activeFrameSource,
-                                        mode: modeManager.activeMode, image: photo, inReplyTo: id))
+            // Auch ohne Foto antworten – sonst wartet Claude vergeblich
+            try await bridge.send(.init(id: "photo-\(UUID().uuidString.prefix(8))",
+                                        text: photo == nil ? "(Foto nicht möglich – Kamera nicht bereit)" : "",
+                                        source: activeFrameSource, mode: modeManager.activeMode, image: photo, inReplyTo: id))
         } catch {
             errorMessage = error.localizedDescription
         }

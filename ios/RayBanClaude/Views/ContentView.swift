@@ -3,6 +3,7 @@ import AVFoundation
 
 struct ContentView: View {
     @ObservedObject var viewModel: SessionViewModel
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showSettings = false
     @State private var textInput = ""
     @State private var hasRequestedPermissions = false
@@ -27,9 +28,12 @@ struct ContentView: View {
             .onChange(of: viewModel.modeManager.activeMode.id) { _, _ in showQuickActionsTemporarily() }
             .onChange(of: viewModel.notice) { _, notice in hideNoticeLater(notice) }
             .onAppear {
-                UIApplication.shared.isIdleTimerDisabled = true
+                // Standard: iPhone darf sich sperren – die App hört über die Brille weiter (Hosentaschen-Modus)
+                UIApplication.shared.isIdleTimerDisabled = viewModel.config.keepScreenOn
                 if DemoMode.showSettings { showSettings = true }
             }
+            .onChange(of: viewModel.config.keepScreenOn) { _, on in UIApplication.shared.isIdleTimerDisabled = on }
+            .onChange(of: scenePhase) { _, phase in viewModel.scenePhaseChanged(phase) }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             .task { await requestPermissionsAndConnect() }
     }
@@ -579,6 +583,7 @@ struct ContentView: View {
     private var frameSourceColor: Color {
         switch viewModel.frameSourceStatus {
         case .connected: return .green
+        case .standby: return .green.opacity(0.7)
         case .connecting: return .yellow
         case .error: return .red
         case .disconnected: return .white.opacity(0.5)
@@ -671,7 +676,13 @@ struct RayBanLayer: View {
                     Image(systemName: "eyeglasses")
                         .font(.system(size: 52, weight: .thin))
                         .foregroundStyle(Color.anthropicOrange.opacity(0.6))
-                    if status.isConnected {
+                    if status == .standby && isConnected {
+                        Text("Kamera aus – die Brille fotografiert nur, wenn du etwas zeigst oder fragst („Was ist das?“).")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    } else if status.isConnected {
                         ProgressView().tint(.anthropicOrange)
                         Text("Empfange Bild der Brille …").font(.subheadline).foregroundStyle(.secondary)
                     } else {

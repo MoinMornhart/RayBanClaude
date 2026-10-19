@@ -1,15 +1,18 @@
 /**
  * Aktionen, die Claude auf dem iPhone auslösen kann (Tool `phone_action`):
- * Timer, Wecker, Timer löschen, Anruf, Nachricht, Navigation.
+ * Timer, Wecker, Timer löschen, Anruf, Nachricht, Navigation, Erinnerung,
+ * Foto in der Mediathek sichern, Standort (auch „merk dir, wo ich geparkt habe“).
  *
  * Jede Aktion wird hier per Whitelist geprüft. Anrufe, Nachrichten und Navigation
  * bestätigt der Nutzer immer auf dem iPhone – Claude kann nichts heimlich auslösen.
  */
 
-import { CLOCK_TIME, PHONE } from './patterns.ts'
+import { CLOCK_TIME, ISO_DATE, PHONE } from './patterns.ts'
 import { cleanText } from './validate.ts'
 
-export const PHONE_ACTIONS = ['timer', 'alarm', 'cancel_timer', 'call', 'message', 'navigate'] as const
+export const PHONE_ACTIONS = [
+  'timer', 'alarm', 'cancel_timer', 'call', 'message', 'navigate', 'reminder', 'save_photo', 'location',
+] as const
 export type PhoneActionName = (typeof PHONE_ACTIONS)[number]
 
 const MAX_TIMER_SECONDS = 86_400 // 24 Stunden
@@ -17,12 +20,14 @@ const MAX_LABEL_CHARS = 60
 const MAX_CONTACT_CHARS = 80
 const MAX_MESSAGE_CHARS = 1000
 const MAX_DESTINATION_CHARS = 200
+const MAX_REMINDER_CHARS = 200
 
 /** Bereinigte Nutzdaten, die an die App gehen (nur bekannte Felder). */
 export interface PhoneActionPayload {
   readonly action: PhoneActionName
   readonly duration_seconds?: number
   readonly time?: string
+  readonly date?: string
   readonly label?: string
   readonly contact?: string
   readonly number?: string
@@ -78,6 +83,17 @@ const BUILDERS: Readonly<Record<PhoneActionName, (args: Args) => PhoneActionPayl
     if (!destination) throw new PhoneActionError('destination ist erforderlich')
     return { action: 'navigate', destination }
   },
+  reminder: args => {
+    const text = optionalText(args.text, MAX_REMINDER_CHARS)
+    if (!text) throw new PhoneActionError('text (woran erinnert werden soll) ist erforderlich')
+    const time = typeof args.time === 'string' ? args.time.trim() : ''
+    const date = typeof args.date === 'string' ? args.date.trim() : ''
+    if (time && !CLOCK_TIME.test(time)) throw new PhoneActionError('time muss im Format HH:MM (24 h) angegeben werden')
+    if (date && !ISO_DATE.test(date)) throw new PhoneActionError('date muss im Format JJJJ-MM-TT angegeben werden')
+    return { action: 'reminder', text, time: time || undefined, date: date || undefined }
+  },
+  save_photo: () => ({ action: 'save_photo' }),
+  location: args => ({ action: 'location', label: optionalText(args.label, MAX_LABEL_CHARS) }),
 }
 
 function isPhoneAction(raw: unknown): raw is PhoneActionName {
@@ -94,21 +110,25 @@ export const PHONE_ACTION_TOOL = {
   name: 'phone_action',
   description: [
     "Do something on the user's iPhone: set a timer or alarm, cancel timers, start a phone call,",
-    'prepare a text message, or start navigation. For call/message pass the contact name exactly as the',
-    'user said it (e.g. "Mama") – the phone looks it up locally, contacts never leave the phone.',
-    'Calls, messages and navigation are always confirmed by the user on the phone.',
-    'The result tells you whether it worked (e.g. contact not found, several numbers to choose from).',
+    'prepare a text message, start navigation, add a reminder (iOS Reminders app), save the last photo',
+    'to the photo library (save_photo – when the user says "mach ein Foto" / "speicher das Foto"),',
+    'or get the current location (location – "wo bin ich?"; with label it is also remembered, e.g.',
+    'label "Auto geparkt" for "merk dir, wo ich geparkt habe"; navigate back later with the stored address).',
+    'For call/message pass the contact name exactly as the user said it (e.g. "Mama") – the phone looks',
+    'it up locally, contacts never leave the phone. Calls, messages and navigation are always confirmed',
+    'by the user on the phone. The result tells you whether it worked.',
   ].join(' '),
   inputSchema: {
     type: 'object',
     properties: {
       action: { type: 'string', enum: [...PHONE_ACTIONS] },
       duration_seconds: { type: 'integer', description: 'timer: duration in seconds (1–86400)' },
-      time: { type: 'string', description: 'alarm: local time HH:MM (24 h), next occurrence' },
-      label: { type: 'string', description: 'timer/alarm: short name, e.g. "Nudeln"; cancel_timer: which one (empty = all)' },
+      time: { type: 'string', description: 'alarm/reminder: local time HH:MM (24 h); alarm = next occurrence' },
+      date: { type: 'string', description: 'reminder: day as YYYY-MM-DD (omit for today/next occurrence of time)' },
+      label: { type: 'string', description: 'timer/alarm: short name, e.g. "Nudeln"; cancel_timer: which one (empty = all); location: name to remember the place by' },
       contact: { type: 'string', description: 'call/message: contact name as spoken by the user' },
       number: { type: 'string', description: 'call/message: phone number, only if the user said one' },
-      text: { type: 'string', description: 'message: the message text' },
+      text: { type: 'string', description: 'message: the message text; reminder: what to remind of' },
       destination: { type: 'string', description: 'navigate: address or place' },
     },
     required: ['action'],

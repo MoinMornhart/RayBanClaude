@@ -89,6 +89,9 @@ final class CameraManager: NSObject, ObservableObject, FrameSource {
         return await processor.nextFrame(quality: 0.92) ?? latestFrame
     }
 
+    /// iPhone-Kamera läuft als Sucher ohnehin, solange die App offen ist
+    func prepareCapture() {}
+
     // MARK: - Einrichtung
 
     private func configureSession() throws {
