@@ -32,7 +32,7 @@ final class DirectClaudeClient {
         Model(id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", hint: "schneller, etwa halb so teuer"),
         Model(id: "claude-haiku-5-5", name: "Claude Haiku 5.5", hint: "am schnellsten und günstigsten"),
     ]
-    static let defaultModel = "claude-opus-5-5"
+    nonisolated static let defaultModel = "claude-opus-5-5"
 
     private let endpoint = URL(string: "https://api.anthropic.com/v1/messages")
     private let apiVersion = "2023-06-01"

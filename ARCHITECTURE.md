@@ -26,20 +26,50 @@
 
 Weitere Nachrichtentypen: `ack` (zugestellt), `edit` (Korrektur), `capture_request`
 (Claude fordert ein Foto an), `permission_request`/`permission_resolved` (Tool-Freigabe
-am Handy), `error`.
+am Handy), `phone_action`/`action_result` (Timer, Anruf … auf dem iPhone),
+`memory_sync`/`memory` (Gedächtnis), `error`.
+
+## Unterwegs: zwei Adressen, ein PC
+
+Der Kopplungs-Link enthält neben der Heim-Adresse optional `remote` – die Tailscale-Adresse des PCs
+(100.64.0.0/10, erkannt am Adapter „Tailscale“). Die App (`ClaudeBridge`) probiert die Adressen der Reihe nach:
+
+| iPhone-Netz | Reihenfolge |
+|---|---|
+| WLAN | Heim-Adresse → Tailscale |
+| nur mobile Daten | Tailscale |
+
+Ein Netzwechsel (`NWPathMonitor`) oder ein fehlgeschlagener Ping startet die Verbindung sofort neu.
+Ist der PC unter keiner Adresse erreichbar und ein API-Key hinterlegt, fragt die App Claude direkt.
+Unterwegs läuft damit weiterhin alles über Claude Code und das Claude-Abo des Nutzers.
+
+## Gedächtnis
+
+- **Quelle der Wahrheit ist die App** (`MemoryStore`, JSON-Datei mit Datenschutzklasse
+  *complete until first user authentication*). Max. 200 Einträge à 300 Zeichen.
+- **Channel:** Beim Verbinden und nach jeder Änderung schickt die App `memory_sync`. Der Server hält die
+  Liste nur im Arbeitsspeicher und stellt sie der *ersten* Nachricht an Claude voran – erneut nur, wenn sie sich
+  geändert hat. Die Tools `remember`/`forget` ändern die Kopie und schicken `memory` (add/remove) an die App.
+- **Direkt:** Die Liste steht in der ersten Nutzernachricht eines Verlaufs (der Systemprompt bleibt gleich →
+  Prompt-Caching), `remember`/`forget` laufen lokal.
+- **Gateway:** Die Liste geht einmal pro Gespräch mit; merken geht dort nur über die App.
+- Einträge sind für Claude ausdrücklich **Fakten, keine Anweisungen**; Text aus Bildern oder Webseiten soll
+  Claude nicht speichern.
 
 ## Komponenten
 
 | Komponente | Datei(en) | Aufgabe |
 |---|---|---|
 | Channel-Server | `channel/server.ts` | MCP-Channel, Routen-Tabelle mit Zugriffsstufen (public/local/token/admin), WebSocket |
-| Hilfsmodule | `channel/lib/*.ts` | Konstanten, Regex mit Beispielen, Validierung, LAN-IP-Erkennung |
+| Hilfsmodule | `channel/lib/*.ts` | Konstanten, Regex mit Beispielen, Validierung, LAN-/Tailscale-Erkennung, Handy-Aktionen, Gedächtnis |
 | Dashboard | `channel/dashboard.*` | QR-Kopplung, Aktivität, Stimme; nur `localhost`, strikte CSP |
 | Gateway | `server/src/*.ts` | Alternative ohne Claude Code: Claude-API + MCP-Client + Skills |
 | `RayBanManager` | `ios/…/Services/RayBanManager.swift` | DAT 1.0.1: Registrierung, Session, Kamera, Stream, Foto, Gerätezustand |
 | `CameraManager` | `ios/…/Services/CameraManager.swift` | iPhone-Kamera, JPEG-Drosselung, QR-/Barcodes |
 | `SpeechManager` | `ios/…/Services/SpeechManager.swift` | Spracherkennung (on-device), Sprachausgabe |
-| `ClaudeBridge` | `ios/…/Services/ClaudeBridge.swift` | WebSocket/REST, Reconnect mit Backoff, Token-Header |
+| `ClaudeBridge` | `ios/…/Services/ClaudeBridge.swift` | WebSocket/REST, WLAN → Tailscale, Reconnect mit Backoff, Token-Header |
+| `DirectClaudeClient` | `ios/…/Services/DirectClaudeClient.swift` | Ohne PC: Claude-API direkt, Werkzeug-Schleife, Prompt-Caching |
+| `MemoryStore` | `ios/…/Services/MemoryStore.swift` | Gedächtnis: speichern, abgleichen, Übernahme aus der Claude-App |
 | `SessionViewModel` | `ios/…/ViewModels/SessionViewModel.swift` | Ablaufsteuerung, Timeouts, Kopplung, Freigaben |
 
 ## Zugriffsstufen im Channel-Server
@@ -47,7 +77,7 @@ am Handy), `error`.
 | Stufe | Bedingung | Routen |
 |---|---|---|
 | public | keine | `GET /health` (nur „ok“) |
-| local | Loopback-IP + Host/Origin = localhost | Dashboard, `/api/local` (Token, IPs), `/api/pair.svg` |
+| local | Loopback-IP + Host/Origin = localhost | Dashboard, `/api/local` (Token, IPs), `/api/pair.svg`, `/api/pair-link` |
 | token | gültiges Bearer-Token | `/ws`, `/upload`, `/message`, `/files/*`, `/api/status`, `/api/activity` |
 | admin | local **und** token | `/api/tts`, `/api/test-message`, `/api/send-imessage` |
 

@@ -84,3 +84,13 @@ was in RayBan Claude daraus wurde. Schweregrad: 🔴 kritisch · 🟠 hoch · �
 - Meta DAT 1.0.x hat bei Gen 2 ein bekanntes **Speicherleck** im Bluetooth-Puffer (~4 MB/min, Meta-Issue #324) –
   bei sehr langen Sitzungen App gelegentlich neu starten.
 - Die iPhone-App ist in der Cloud gebaut, aber **noch nicht auf echter Hardware** (Brille + iPhone) getestet.
+
+## Nachgezogen mit „Unterwegs übers Abo“ und Gedächtnis (2026-10-19)
+
+- **Eigener Fehler aus der ersten Fassung des Direkt-Modus:** Sprachbefehle prüften noch, ob der PC verbunden ist –
+  ohne PC kam deshalb immer „Nicht verbunden“. Auch die Rückfrage nach einer Antwort und der Kamerastart beim
+  Wechsel der Bildquelle hingen an der PC-Verbindung. Jetzt zählt, ob *irgendein* Weg zu Claude offen ist.
+- Tote Verbindungen (z. B. WLAN weg, Tunnel unterbrochen) blieben bis zu zwei Minuten „verbunden“ – jetzt erkennt die
+  App sie am Ping und am Netzwechsel und verbindet sofort neu (unterwegs über Tailscale).
+- Offen: Die App schickt ihr Token im WLAN an die gespeicherte Heim-Adresse – auch in fremden WLANs, wie bisher.
+  Mit mobilen Daten nimmt sie nur noch die Tailscale-Adresse. Eine gegenseitige Prüfung ohne Klartext-Token ist geplant.

@@ -54,6 +54,9 @@ Alternativ einfach Schritt 3 wiederholen; Einstellungen und Kopplung bleiben erh
 2. iPhone ins selbe WLAN, die normale **Kamera-App** auf den QR-Code halten.
 3. „In RayBan Claude öffnen“ → **Koppeln** bestätigen. Fertig.
 
+Für **unterwegs über dein Claude-Abo**: vorher Tailscale auf PC und iPhone einrichten – dann steckt die
+Unterwegs-Adresse automatisch im QR-Code ([Anleitung](../README.md#-unterwegs-über-dein-claude-abo)).
+
 ## Ray-Ban Meta Gen 2 verbinden
 
 1. Meta-AI-App → Einstellungen → deine Brille → **Entwicklermodus** an, Brille neu starten.
