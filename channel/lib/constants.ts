@@ -62,6 +62,16 @@ export const MAX_ACTION_RESULT_CHARS = 300
 // ── Gedächtnis ─────────────────────────────────────────────────────────────
 export const MAX_MEMORY_ITEMS = 200
 export const MAX_MEMORY_ITEM_CHARS = 300
+/** So oft schaut der Channel nach Fakten, die die Claude-App für die Brille vorgemerkt hat */
+export const PENDING_MEMORY_POLL_MS = 5000
+
+// ── Gesprächsverlauf ───────────────────────────────────────────────────────
+export const MS_PER_DAY = 86_400_000
+export const HISTORY_DAYS = 30                 // so lange bleibt der Verlauf auf dem PC
+export const MAX_HISTORY_ENTRY_CHARS = 2000
+export const MAX_HISTORY_READ_CHARS = 30_000   // so viel liefert brille_verlauf höchstens
+export const DEFAULT_HISTORY_READ_DAYS = 3
+export const JSON_INDENT = 2
 
 // ── Token ──────────────────────────────────────────────────────────────────
 export const TOKEN_BYTES = 24              // → 48 Hex-Zeichen

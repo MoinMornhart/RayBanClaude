@@ -100,6 +100,8 @@ final class SessionViewModel: ObservableObject {
             loadDemo()
         } else {
             rayBanManager.startMonitoringRegistration()
+            // Die Brille hat Vorrang: ist sie gekoppelt, ist sie die Kamera (iPhone nur als Ersatz)
+            if rayBanManager.isRegistered { activeFrameSource = .rayBan }
         }
     }
 
@@ -154,6 +156,14 @@ final class SessionViewModel: ObservableObject {
 
         bridge.$isRemote
             .sink { [weak self] remote in self?.viaTailscale = remote }
+            .store(in: &cancellables)
+
+        // Brille später gekoppelt → ab sofort die Brille nehmen
+        rayBanManager.$isRegistered
+            .removeDuplicates()
+            .dropFirst()
+            .filter { $0 }
+            .sink { [weak self] _ in self?.activeFrameSource = .rayBan }
             .store(in: &cancellables)
 
         rayBanManager.$connectionStatus
@@ -336,6 +346,8 @@ final class SessionViewModel: ObservableObject {
         case .background:
             if !config.listenWhenLocked {
                 speechManager.releaseMicrophone()
+                // Brillen-Sitzung vor dem Anhalten der App sauber beenden – sonst kann die Brille hängen bleiben
+                rayBanManager.releaseCamera()
                 if state == .standby || state == .listening { state = .idle }
             }
         case .active:
@@ -577,11 +589,34 @@ final class SessionViewModel: ObservableObject {
         return photo
     }
 
-    /// Frisches Foto aufnehmen und als „Foto von eben“ merken
+    /// Frisches Foto aufnehmen und als „Foto von eben“ merken. Erst die Brille – kann sie gerade nicht,
+    /// springt (bei offener App) die iPhone-Kamera ein.
     private func takePhoto() async -> Data? {
-        guard let photo = await activeSource.capturePhoto() else { return nil }
+        var captured = await activeSource.capturePhoto()
+        if captured == nil, activeFrameSource == .rayBan, let fallback = await iPhoneFallbackPhoto() {
+            notice = "Brille nicht bereit – Foto mit der iPhone-Kamera"
+            captured = fallback
+        }
+        guard let photo = captured else { return nil }
         lastPhoto = (photo, Date())
         transcript.append(TranscriptMessage(role: .system, text: "📸 Foto an Claude"))
+        return photo
+    }
+
+    /// Ersatz-Foto mit der iPhone-Kamera (nur wenn die App im Vordergrund ist – sonst sperrt iOS die Kamera)
+    private func iPhoneFallbackPhoto() async -> Data? {
+        guard UIApplication.shared.applicationState == .active else { return nil }
+        let wasRunning = cameraManager.isRunning
+        if !wasRunning {
+            guard (try? cameraManager.start()) != nil else { return nil }
+            // Kamera kurz anlaufen und belichten lassen (max. 2 s)
+            for _ in 0..<20 where !cameraManager.isRunning {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        let photo = await cameraManager.capturePhoto()
+        if !wasRunning { cameraManager.stop() }
         return photo
     }
 

@@ -188,7 +188,7 @@ struct SettingsView: View {
         } header: {
             Text("Gedächtnis")
         } footer: {
-            Text("„Hey Claude, merk dir …“ – Claude behält es, mit und ohne PC. Aus der Claude-App übernimmst du dein Wissen mit einem Schritt.")
+            Text("„Hey Claude, merk dir …“ – Claude behält es, mit und ohne PC. Aus deinen Claude-Chats kommt dein Wissen per Einfügen oder direkt über die Claude-Desktop-App am PC („Übertrag, was du über mich weißt, an die Brille“).")
         }
     }
 
@@ -268,6 +268,7 @@ struct SettingsView: View {
                 }
             }
             LabeledContent("Registrierung", value: rayBanManager.registrationLabel)
+            LabeledContent("Mikrofon & Stimme", value: AudioSessionManager.shared.currentRouteLabel)
             if let open = rayBanManager.hingesOpen {
                 LabeledContent("Bügel", value: open ? "offen" : "geschlossen")
             }
@@ -293,7 +294,7 @@ struct SettingsView: View {
         } header: {
             Text("Ray-Ban Meta")
         } footer: {
-            Text("Einmalig registrieren: Die Meta-AI-App öffnet sich zur Bestätigung. Danach unten rechts auf „Brille“ tippen.")
+            Text("Einmalig registrieren: Die Meta-AI-App öffnet sich zur Bestätigung. Danach hat die Brille immer Vorrang – Kamera, Mikrofon und Lautsprecher der Ray-Ban Meta zuerst, das iPhone nur als Ersatz. Die Kamera der Brille geht nur für ein Foto an, wenn du etwas fragst, das ein Bild braucht.")
         }
     }
 

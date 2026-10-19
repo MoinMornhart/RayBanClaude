@@ -2,12 +2,14 @@
  * Gedächtnis: Was Claude sich über den Nutzer merken soll.
  *
  * Die Merkliste gehört der iPhone-App (dort gespeichert, dort verwaltbar). Der
- * Channel hält nur eine Kopie im Arbeitsspeicher – sie landet nie auf der
- * Festplatte des PCs. Claude bekommt die Liste mit der ersten Nachricht einer
- * Sitzung und erneut, sobald sie sich in der App geändert hat.
+ * Channel hält eine Kopie – im Arbeitsspeicher und als Datei im Benutzerordner,
+ * damit die Claude-Desktop-App (Werkzeug `brille_gedaechtnis`) sie lesen kann.
+ * Claude bekommt die Liste mit der ersten Nachricht einer Sitzung und erneut,
+ * sobald sie sich geändert hat.
  */
 
-import { MAX_MEMORY_ITEM_CHARS, MAX_MEMORY_ITEMS } from './constants.ts'
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { JSON_INDENT, MAX_MEMORY_ITEM_CHARS, MAX_MEMORY_ITEMS, PRIVATE_FILE_MODE } from './constants.ts'
 import { cleanText } from './validate.ts'
 
 /** Fester Wert – das Werkzeug hat nur das eine Feld `fact`. */
@@ -69,6 +71,36 @@ export function forgetFact(items: readonly string[], query: string): ForgetResul
   const needle = normalize(query)
   const matches = (item: string): boolean => !!needle && normalize(item).includes(needle)
   return { items: items.filter(item => !matches(item)), removed: items.filter(matches) }
+}
+
+// ── Dateien (Kopie für die Claude-App, vorgemerkte Fakten) ─────────────────
+
+/** Merkliste aus einer Datei lesen – kaputte oder fehlende Datei = leere Liste */
+export function loadMemoryFile(path: string): string[] {
+  if (!existsSync(path)) return []
+  try {
+    return cleanMemoryItems(JSON.parse(readFileSync(path, 'utf8')))
+  } catch {
+    return []
+  }
+}
+
+export function saveMemoryFile(path: string, items: readonly string[]): void {
+  writeFileSync(path, JSON.stringify(items, null, JSON_INDENT), { mode: PRIVATE_FILE_MODE })
+}
+
+/** Fakt für die Brille vormerken (Claude-App → Brille) */
+export function queueMemory(path: string, fact: string): string[] {
+  const queued = addFact(loadMemoryFile(path), fact)
+  saveMemoryFile(path, queued)
+  return queued
+}
+
+/** Vorgemerkte Fakten abholen und die Datei leeren */
+export function takeQueuedMemory(path: string): string[] {
+  const queued = loadMemoryFile(path)
+  if (existsSync(path)) unlinkSync(path)
+  return queued
 }
 
 /** Block, der vor die Nachricht an Claude gestellt wird. */

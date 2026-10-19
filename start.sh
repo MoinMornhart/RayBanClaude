@@ -20,6 +20,13 @@ command -v claude >/dev/null || { echo "Claude Code fehlt – bitte zuerst ./set
 
 echo "◉ RayBan Claude startet … Dashboard öffnet sich gleich im Browser."
 # Nur die eigenen Werkzeuge von RayBan Claude vorab erlauben – alles andere fragt weiter nach
-exec claude --dangerously-load-development-channels server:raybanclaude \
+# Frühere Brillen-Sitzung in diesem Ordner? Dann dort weitermachen (--neu startet frisch)
+resume=()
+session_dir="$HOME/.claude/projects/$(pwd | sed 's/[^A-Za-z0-9]/-/g')"
+if [[ "${1:-}" != "--neu" ]] && compgen -G "$session_dir/*.jsonl" > /dev/null; then
+  resume=(--continue)
+  echo "  Setzt das letzte Gespräch fort (neues Gespräch: ./start.sh --neu)"
+fi
+exec claude "${resume[@]}" --dangerously-load-development-channels server:raybanclaude \
   --allowedTools "mcp__raybanclaude__reply" "mcp__raybanclaude__edit_message" "mcp__raybanclaude__request_photo" \
                  "mcp__raybanclaude__phone_action" "mcp__raybanclaude__remember" "mcp__raybanclaude__forget"

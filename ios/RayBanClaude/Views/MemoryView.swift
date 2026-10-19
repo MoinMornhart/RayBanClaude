@@ -108,6 +108,8 @@ struct MemoryImportView: View {
                     step(2, "Kopiere Claudes Antwort und füge sie unten ein.")
                 } header: {
                     Text("So geht’s")
+                } footer: {
+                    Text("Noch einfacher am PC: Mit RayBan Claude ist die Claude-Desktop-App verknüpft. Sag dort einfach „Übertrag, was du über mich weißt, an die Brille“ – Claude schreibt es direkt hierher.")
                 }
 
                 Section {

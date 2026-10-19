@@ -66,7 +66,16 @@ try {
     Pop-Location
     Write-Ok "Channel bereit"
 
-    # ── 4. Optional: Gateway-Modus (eigener Anthropic-API-Key, kostet pro Anfrage) ──
+    # ── 4. Verknüpfung mit der Claude-Desktop-App ─────────────────────────────
+    # Claude in deinen normalen Chats kann dann den Brillen-Verlauf lesen und Wissen an die Brille geben.
+    Write-Step "Mit der Claude-App verknüpfen"
+    Write-Host "  Dann kannst du in deinen Claude-Chats z. B. sagen: „Was habe ich heute über die Brille gefragt?“" -ForegroundColor Gray
+    Write-Host "  oder „Übertrag, was du über mich weißt, an die Brille“." -ForegroundColor Gray
+    if (Ask "Mit der Claude-Desktop-App auf diesem PC verknüpfen?") {
+        bun channel\link-desktop.ts
+    }
+
+    # ── 5. Optional: Gateway-Modus (eigener Anthropic-API-Key, kostet pro Anfrage) ──
     if (Test-Path server) {
         Write-Step "Gateway-Modus (optional)"
         Write-Host "  Nur nötig, wenn du OHNE Claude Code mit eigenem API-Key arbeiten willst." -ForegroundColor Gray
@@ -84,7 +93,7 @@ try {
         }
     }
 
-    # ── 5. Windows-Firewall: iPhone muss den PC erreichen (WLAN und ggf. Tailscale) ──
+    # ── 6. Windows-Firewall: iPhone muss den PC erreichen (WLAN und ggf. Tailscale) ──
     if (-not $Unattended) {
         Write-Step "Windows-Firewall"
         $hasTailscale = [bool](Get-NetAdapter -Name 'Tailscale' -ErrorAction SilentlyContinue)

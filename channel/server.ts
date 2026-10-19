@@ -19,7 +19,7 @@ import type { CallToolResult, Notification } from '@modelcontextprotocol/sdk/typ
 import {
   chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync,
 } from 'fs'
-import { homedir, platform } from 'os'
+import { platform } from 'os'
 import { basename, extname, join } from 'path'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -27,7 +27,11 @@ import { renderSVG } from 'uqr'
 import * as C from './lib/constants.ts'
 import * as RX from './lib/patterns.ts'
 import { findTailscaleIp, listLanIps, isLocalRequest } from './lib/network.ts'
-import { addFact, cleanMemoryItems, forgetFact, MEMORY_TOOLS, memoryBlock, memoryKey } from './lib/memory.ts'
+import {
+  addFact, cleanMemoryItems, forgetFact, loadMemoryFile, MEMORY_TOOLS, memoryBlock, memoryKey, saveMemoryFile, takeQueuedMemory,
+} from './lib/memory.ts'
+import { appendHistory, pruneHistory } from './lib/history.ts'
+import { HISTORY_DIR, MEMORY_FILE, PENDING_MEMORY_FILE, STATE_DIR } from './lib/paths.ts'
 import {
   cleanId, cleanModeName, cleanSource, cleanText, HttpError, isValidId, parsePort, requireImage,
 } from './lib/validate.ts'
@@ -36,7 +40,6 @@ import { buildPhoneAction, PHONE_ACTION_TOOL } from './lib/phone-actions.ts'
 import type { PhoneActionPayload } from './lib/phone-actions.ts'
 
 // ── Pfade & Plattform ───────────────────────────────────────────────────────
-const STATE_DIR = join(homedir(), '.claude', 'channels', C.SERVER_NAME)
 const INBOX_DIR = join(STATE_DIR, 'inbox')    // Bilder vom Handy/von der Brille
 const OUTBOX_DIR = join(STATE_DIR, 'outbox')  // TTS-Audio und Anhänge von Claude
 const ENV_FILE = join(STATE_DIR, '.env')
@@ -246,7 +249,31 @@ const pendingPermissions = new Map<string, number>()  // request_id → Zeitstem
 const pendingActions = new Map<string, (result: string) => void>()
 const session = { seq: 0, lastMode: '' }
 /** Kopie der Merkliste aus der App (nur im Arbeitsspeicher); `delivered` = Stand, den Claude schon kennt. */
-const memory = { items: [] as string[], delivered: '', enabled: true }
+const memory = { items: loadMemoryFile(MEMORY_FILE), delivered: '', enabled: true }
+
+/** Merkliste ändern und die Kopie für die Claude-App mitschreiben */
+function setMemory(items: string[], claudeKnows: boolean): void {
+  memory.items = items
+  if (claudeKnows) memory.delivered = memoryKey(items)
+  try {
+    saveMemoryFile(MEMORY_FILE, items)
+  } catch (e) {
+    log(`Gedächtnis-Kopie nicht gespeichert: ${errorText(e)}`)
+  }
+}
+
+/** Von der Claude-App vorgemerkte Fakten an die iPhone-App übergeben (nur wenn sie verbunden ist) */
+function applyQueuedMemory(): void {
+  if (!clients.size || !memory.enabled) return
+  const queued = takeQueuedMemory(PENDING_MEMORY_FILE)
+  if (!queued.length) return
+  // Claude in der Brille kennt die neuen Fakten noch nicht → kommen mit der nächsten Nachricht
+  setMemory(queued.reduce(addFact, memory.items), false)
+  broadcast({ type: 'memory', op: 'add', items: queued })
+  logActivity({ direction: 'in', source: 'claude-app', text: `🧠 ${queued.length} Fakt(en) aus der Claude-App übernommen` })
+}
+
+setInterval(applyQueuedMemory, C.PENDING_MEMORY_POLL_MS).unref()
 
 const ID_RADIX = 36 // kompakte Zeitstempel: Ziffern + Kleinbuchstaben
 
@@ -294,6 +321,8 @@ function cleanupOldFiles(): void {
     })
 }
 cleanupOldFiles()
+pruneHistory(HISTORY_DIR)
+setInterval(() => pruneHistory(HISTORY_DIR), C.MS_PER_HOUR).unref()
 setInterval(cleanupOldFiles, C.MS_PER_HOUR).unref()
 
 // ── ElevenLabs TTS (optional, kostenpflichtig – ohne Key spricht die App selbst, kostenlos) ──
@@ -456,6 +485,7 @@ const TOOL_HANDLERS: Readonly<Record<string, (args: ToolArgs) => Promise<ToolRes
     const replyTo = isValidId(args.reply_to) ? args.reply_to : undefined
     const sent = broadcast({ type: 'reply', id, text, audio_url: audioUrl, reply_to: replyTo, files: files.length ? files : undefined })
     logActivity({ direction: 'out', source: 'claude', text })
+    saveHistory('claude', text)
     log(`→ Antwort an ${sent} App(s): ${preview(text)}`)
     const extras = [audioUrl && 'mit Audio', files.length && `${files.length} Anhang/Anhänge`].filter(Boolean).join(', ')
     return textResult(`gesendet ${id}${extras ? ` (${extras})` : ''}`)
@@ -500,8 +530,7 @@ const TOOL_HANDLERS: Readonly<Record<string, (args: ToolArgs) => Promise<ToolRes
     if (!fact) throw new Error('fact darf nicht leer sein')
     if (!memory.enabled) throw new Error('Das Gedächtnis ist in der App ausgeschaltet (Einstellungen → Gedächtnis).')
     requireClients()
-    memory.items = addFact(memory.items, fact)
-    memory.delivered = memoryKey(memory.items) // Claude kennt den neuen Eintrag ja schon
+    setMemory(addFact(memory.items, fact), true) // Claude kennt den neuen Eintrag ja schon
     broadcast({ type: 'memory', op: 'add', items: [fact] })
     logActivity({ direction: 'out', source: 'claude', text: `🧠 gemerkt: ${fact}` })
     return textResult(`Gemerkt – ${memory.items.length} Einträge im Gedächtnis.`)
@@ -513,8 +542,7 @@ const TOOL_HANDLERS: Readonly<Record<string, (args: ToolArgs) => Promise<ToolRes
     requireClients()
     const { items, removed } = forgetFact(memory.items, query)
     if (!removed.length) return textResult('Dazu ist nichts gespeichert.')
-    memory.items = items
-    memory.delivered = memoryKey(items)
+    setMemory(items, true)
     broadcast({ type: 'memory', op: 'remove', items: removed })
     logActivity({ direction: 'out', source: 'claude', text: `🧠 vergessen: ${removed.length} Eintrag/Einträge` })
     return textResult(`Gelöscht: ${removed.join(' | ')}`)
@@ -610,6 +638,15 @@ function pendingMemoryBlock(): string {
   return memoryBlock(memory.items)
 }
 
+/** Gesprächsverlauf auf dem PC mitschreiben (für die Claude-App: brille_verlauf) */
+function saveHistory(speaker: 'du' | 'claude', text: string, note = ''): void {
+  try {
+    appendHistory(HISTORY_DIR, speaker, text, note)
+  } catch (e) {
+    log(`Verlauf nicht gespeichert: ${errorText(e)}`)
+  }
+}
+
 function deliver(msg: Inbound): void {
   // Den (langen) Modus-Prompt nur beim Wechsel mitschicken – spart Tokens
   const modeChanged = !!msg.mode && msg.mode !== session.lastMode
@@ -631,6 +668,7 @@ function deliver(msg: Inbound): void {
   void mcp.notification({ method: 'notifications/claude/channel', params: { content, meta } })
   broadcast({ type: 'ack', id: msg.id })
   logActivity({ direction: 'in', source: msg.source, text: msg.text || content, hasImage: !!msg.image })
+  if (msg.text) saveHistory('du', msg.text, msg.image ? ' 📷' : '')
   const imageInfo = msg.image ? ` [+Bild ${(msg.image.bytes / C.BYTES_PER_KB).toFixed(0)} KB]` : ''
   log(`← ${msg.source}: ${preview(msg.text)}${imageInfo}`)
 }
@@ -906,8 +944,9 @@ const WS_HANDLERS: Readonly<Record<string, WsHandler>> = {
   action_result: (_ws, m) => resolveAction(m.id, m.ok, m.message),
   memory_sync: (_ws, m) => {
     memory.enabled = m.enabled !== false
-    memory.items = memory.enabled ? cleanMemoryItems(m.items) : []
+    setMemory(memory.enabled ? cleanMemoryItems(m.items) : [], false)
     log(`🧠 Gedächtnis von der App: ${memory.enabled ? `${memory.items.length} Einträge` : 'ausgeschaltet'}`)
+    applyQueuedMemory()
   },
   ping: () => undefined,
 }

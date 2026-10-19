@@ -156,8 +156,11 @@ final class SpeechManager: NSObject, ObservableObject {
     private var generation = 0
     private var standbyRetries = 0
 
-    /// Bereitschaft regelmäßig neu starten (Apple begrenzt eine Erkennung auf etwa eine Minute)
+    /// Bereitschaft regelmäßig neu starten: Erkennung über Apples Server ist auf etwa eine Minute begrenzt;
+    /// auf dem Gerät gilt die Grenze nicht – dann seltener (der Text wächst sonst endlos, und im
+    /// Hintergrund scheitert jeder Neustart eher)
     private let standbyRefreshInterval: TimeInterval = 50
+    private let onDeviceStandbyRefreshInterval: TimeInterval = 240
     /// Nach dem Weckwort so lange auf den Befehl warten
     private let wakeCommandTimeout: TimeInterval = 7
 
@@ -239,7 +242,8 @@ final class SpeechManager: NSObject, ObservableObject {
         listenMode = mode
 
         if mode == .standby {
-            standbyRefreshTimer = Timer.scheduledTimer(withTimeInterval: standbyRefreshInterval, repeats: false) { [weak self] _ in
+            let interval = request.requiresOnDeviceRecognition ? onDeviceStandbyRefreshInterval : standbyRefreshInterval
+            standbyRefreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.generation == session, self.listenMode == .standby else { return }
                     self.enterStandby()

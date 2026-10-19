@@ -45,7 +45,7 @@ CloseApplications=yes
 Name: "de"; MessagesFile: "compiler:Languages\German.isl"
 
 [Messages]
-de.WelcomeLabel2=Damit sieht Claude, was du siehst – mit deiner Ray-Ban Meta (Gen 2) oder deinem iPhone.%n%nDer Installer richtet alles ein, was dein PC braucht: Bun und Claude Code (offizielle Installer, kostenlos) und den RayBan-Claude-Channel. Für Claude brauchst du ein Claude-Abo (Pro oder Max).%n%nInoffizielles Open-Source-Projekt – nicht verbunden mit Meta, Ray-Ban oder Anthropic.
+de.WelcomeLabel2=Damit sieht Claude, was du siehst – mit deiner Ray-Ban Meta (Gen 2) oder deinem iPhone.%n%nDer Installer richtet alles ein, was dein PC braucht: Bun und Claude Code (offizielle Installer, kostenlos), den RayBan-Claude-Channel und – falls installiert – die Verknüpfung mit der Claude-Desktop-App. Für Claude brauchst du ein Claude-Abo (Pro oder Max).%n%nInoffizielles Open-Source-Projekt – nicht verbunden mit Meta, Ray-Ban oder Anthropic.
 de.FinishedLabel=RayBan Claude ist eingerichtet.%n%nBeim ersten Start meldest du dich einmal bei Claude an (der Browser öffnet sich) und bestätigst „Use this MCP server“. Danach öffnet sich das Dashboard – dort den QR-Code mit der iPhone-Kamera scannen.%n%nDie iPhone-App installierst du ohne Mac mit Sideloadly (Anleitung im Startmenü).
 
 [Tasks]
@@ -67,6 +67,7 @@ Source: "RayBanClaude.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\RayBan Claude\RayBan Claude"; Filename: "{app}\start.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\RayBanClaude.ico"; Comment: "Claude mit Ray-Ban Meta und iPhone starten"
+Name: "{autoprograms}\RayBan Claude\Neues Gespräch"; Filename: "{app}\start.cmd"; Parameters: "-Neu"; WorkingDir: "{app}"; IconFilename: "{app}\RayBanClaude.ico"; Comment: "RayBan Claude ohne das letzte Gespräch starten"
 Name: "{autoprograms}\RayBan Claude\Einrichtung wiederholen"; Filename: "{app}\setup.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\RayBanClaude.ico"
 Name: "{autoprograms}\RayBan Claude\iPhone-App installieren (Anleitung)"; Filename: "{#RepoUrl}/blob/main/docs/IPHONE-OHNE-MAC.md"
 Name: "{autoprograms}\RayBan Claude\RayBan Claude deinstallieren"; Filename: "{uninstallexe}"
@@ -81,6 +82,8 @@ Filename: "{app}\start.cmd"; WorkingDir: "{app}"; Description: "RayBan Claude je
 Filename: "{#RepoUrl}/blob/main/docs/IPHONE-OHNE-MAC.md"; Description: "Anleitung öffnen: App aufs iPhone (ohne Mac)"; Flags: postinstall shellexec nowait skipifsilent unchecked
 
 [UninstallRun]
+; Verknüpfung mit der Claude-Desktop-App wieder austragen
+Filename: "{%USERPROFILE}\.bun\bin\bun.exe"; Parameters: """{app}\channel\link-desktop.ts"" --remove"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "ClaudeAppTrennen"
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\firewall.ps1"" -Remove"; Verb: "runas"; Flags: shellexec waituntilterminated; RunOnceId: "FirewallEntfernen"
 
 [UninstallDelete]

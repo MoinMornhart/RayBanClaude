@@ -53,8 +53,12 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
     /// Audio (HFP) wurde schon einmal eingerichtet und hatte Zeit, sich zu setzen
     private var audioSettled = false
 
-    /// Gen 2: 720p bei 15 fps liefert über Bluetooth sauberere Einzelbilder als 30 fps
-    private let streamConfig = StreamConfiguration(videoCodec: .raw, resolution: .high, frameRate: 15)
+    /// Nur für Fotos: `hvc1` liefert laut Meta auch bei gesperrtem iPhone (Hintergrund) – `raw` nur im Vordergrund.
+    /// Mittlere Auflösung schont Bluetooth und Akku; die Fotos selbst kommen trotzdem in 1440×1080.
+    private let streamConfig = StreamConfiguration(videoCodec: .hvc1, resolution: .medium, frameRate: 15)
+    /// Meta: zwischen zwei Sitzungen mindestens 2 s Pause, sonst kann die Brille hängen bleiben
+    private let sessionGap: TimeInterval = 2
+    private var lastTeardown: Date = .distantPast
     private let sessionStartTimeout: UInt64 = 20_000_000_000 // 20 s
     private let hfpSettleDelay: UInt64 = 2_000_000_000       // 2 s laut Meta-Doku
     private let photoTimeout: UInt64 = 12_000_000_000         // 12 s
@@ -261,6 +265,11 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
 
         // 1. Registrierung und Kamera-Freigabe
         guard await ensureAccess(), !Task.isCancelled else { return }
+        let sinceLast = Date().timeIntervalSince(lastTeardown)
+        if sinceLast < sessionGap {
+            try? await Task.sleep(nanoseconds: UInt64((sessionGap - sinceLast) * 1_000_000_000))
+        }
+        guard !Task.isCancelled else { return }
 
         // 2. Geräte-Sitzung
         let session: DeviceSession
@@ -390,7 +399,18 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
         teardown(status: .error(message))
     }
 
+    /// Kamera und Sitzung sofort freigeben (z. B. bevor iOS die App anhält), bleibt aber bereit
+    func releaseCamera() {
+        idleStopTask?.cancel()
+        idleStopTask = nil
+        startTask?.cancel()
+        startTask = nil
+        guard deviceSession != nil else { return }
+        teardown(status: isArmed ? .standby : .disconnected)
+    }
+
     private func teardown(status: FrameSourceStatus) {
+        if deviceSession != nil { lastTeardown = Date() }
         resolvePhoto(nil)
         streamTokens.clear()
         camera?.stop()

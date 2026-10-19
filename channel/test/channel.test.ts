@@ -40,6 +40,9 @@ interface RpcMessage {
 }
 
 const home = mkdtempSync(join(tmpdir(), 'raybanclaude-test-'))
+const testEnv = { ...process.env, HOME: home, USERPROFILE: home, RAYBANCLAUDE_PORT: String(TEST_PORT), RAYBANCLAUDE_NO_BROWSER: '1' }
+const BRIDGE_INIT_ID = 1
+const BRIDGE_CALL_ID = 2
 const received: RpcMessage[] = []
 const state = { rpcId: 0, buffer: '', token: '' }
 let proc: Subprocess<'pipe', 'pipe', 'pipe'>
@@ -101,7 +104,7 @@ beforeAll(async () => {
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
-    env: { ...process.env, HOME: home, USERPROFILE: home, RAYBANCLAUDE_PORT: String(TEST_PORT), RAYBANCLAUDE_NO_BROWSER: '1' },
+    env: testEnv,
   })
   void readStdout()
   await rpc('initialize', { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: 'test', version: '1' } })
@@ -339,6 +342,61 @@ describe('Gedächtnis', () => {
     expect(refused.isError).toBe(true)
     expect(inbox.some(m => m.type === 'memory')).toBe(false)
     ws.close()
+  })
+})
+
+/** Ruft ein Werkzeug der Claude-App-Brücke (bridge.ts) auf – so, wie es die Claude-Desktop-App tut. */
+async function bridgeCall(name: string, args: Record<string, unknown>): Promise<string> {
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, '..', 'bridge.ts')], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: testEnv })
+  const messages: RpcMessage[] = []
+  const decoder = new TextDecoder()
+  const pending = { buffer: '' }
+  void child.stdout.pipeTo(new WritableStream({
+    write(chunk) {
+      pending.buffer += decoder.decode(chunk)
+      const lines = pending.buffer.split('\n')
+      pending.buffer = lines.pop() ?? ''
+      lines.filter(Boolean).forEach(line => messages.push(JSON.parse(line)))
+    },
+  }))
+  const write = (message: Record<string, unknown>): void => {
+    child.stdin.write(JSON.stringify({ jsonrpc: JSONRPC, ...message }) + '\n')
+    child.stdin.flush()
+  }
+  write({ id: BRIDGE_INIT_ID, method: 'initialize', params: { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: 'claude-app', version: '1' } } })
+  await waitFor(() => messages.find(m => m.id === BRIDGE_INIT_ID), 'Brücke startet')
+  write({ method: 'notifications/initialized' })
+  write({ id: BRIDGE_CALL_ID, method: 'tools/call', params: { name, arguments: args } })
+  const reply = await waitFor(() => messages.find(m => m.id === BRIDGE_CALL_ID), name)
+  child.kill()
+  return JSON.stringify(reply.result ?? {})
+}
+
+describe('Claude-App-Brücke (Verlauf und Gedächtnis)', () => {
+  test('brille_verlauf liefert, worüber über die Brille gesprochen wurde', async () => {
+    const history = await bridgeCall('brille_verlauf', { tage: 1 })
+    expect(history).toContain('Was siehst du?')
+    expect(history).toContain('Ein roter Apfel.')
+    const search = await bridgeCall('brille_verlauf', { suche: 'apfel' })
+    expect(search).toContain('Ein roter Apfel.')
+    expect(search).not.toContain('Was siehst du?')
+  })
+
+  test('brille_merken aus der Claude-App landet beim nächsten Verbinden auf dem iPhone', async () => {
+    expect(await bridgeCall('brille_merken', { fakt: 'Mag grünen Tee' })).toContain('Vorgemerkt')
+    expect(await bridgeCall('brille_gedaechtnis', {})).toContain('Mag grünen Tee')
+    const { ws, inbox } = await openSocket()
+    ws.send(JSON.stringify({ type: 'memory_sync', items: ['Tochter heißt Mia'] }))
+    const added = await waitFor(() => inbox.find(m => m.type === 'memory' && m.op === 'add'), 'memory add aus der Claude-App')
+    expect(added.items).toEqual(['Mag grünen Tee'])
+    const memoryNow = await bridgeCall('brille_gedaechtnis', {})
+    expect(memoryNow).toContain('Tochter heißt Mia')
+    expect(memoryNow).not.toContain('Vorgemerkt')
+    ws.close()
+  })
+
+  test('leerer Fakt wird abgewiesen', async () => {
+    expect(await bridgeCall('brille_merken', { fakt: '   ' })).toContain('isError')
   })
 })
 

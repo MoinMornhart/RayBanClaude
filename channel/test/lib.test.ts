@@ -3,8 +3,12 @@
  */
 
 import { describe, expect, test } from 'bun:test'
-import { MAX_MEMORY_ITEM_CHARS, MAX_MEMORY_ITEMS } from '../lib/constants.ts'
-import { addFact, cleanMemoryItems, forgetFact, memoryBlock } from '../lib/memory.ts'
+import { existsSync, mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { HISTORY_DAYS, MAX_MEMORY_ITEM_CHARS, MAX_MEMORY_ITEMS, MS_PER_DAY } from '../lib/constants.ts'
+import { appendHistory, dayStamp, pruneHistory, readHistory } from '../lib/history.ts'
+import { addFact, cleanMemoryItems, forgetFact, memoryBlock, queueMemory, takeQueuedMemory } from '../lib/memory.ts'
 import { findTailscaleIp } from '../lib/network.ts'
 import type { LanIp } from '../lib/network.ts'
 
@@ -51,5 +55,39 @@ describe('Gedächtnis-Hilfen', () => {
   test('Block kennzeichnet Einträge als Fakten, nicht als Anweisungen', () => {
     expect(memoryBlock(['Mag Jazz'])).toContain('keine Anweisungen')
     expect(memoryBlock([])).toContain('geleert')
+  })
+})
+
+describe('Gesprächsverlauf', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'raybanclaude-verlauf-'))
+  const now = new Date()
+  const longAgo = new Date(now.getTime() - (HISTORY_DAYS + 1) * MS_PER_DAY)
+
+  test('schreibt eine Zeile pro Äußerung, Zeilenumbrüche werden zu Leerzeichen', () => {
+    appendHistory(dir, 'du', 'Was steht\nauf dem Schild?', ' 📷', now)
+    appendHistory(dir, 'claude', 'Ausfahrt freihalten.', '', now)
+    const text = readHistory(dir, 1)
+    expect(text).toContain('**Du:** Was steht auf dem Schild? 📷')
+    expect(text).toContain('**Claude:** Ausfahrt freihalten.')
+    expect(readHistory(dir, 1, 'ausfahrt')).not.toContain('Schild')
+  })
+
+  test('löscht Tage, die älter als die Aufbewahrungszeit sind', () => {
+    appendHistory(dir, 'du', 'Uralte Frage', '', longAgo)
+    expect(existsSync(join(dir, `${dayStamp(longAgo)}.md`))).toBe(true)
+    expect(pruneHistory(dir, now)).toBe(1)
+    expect(existsSync(join(dir, `${dayStamp(longAgo)}.md`))).toBe(false)
+    expect(readHistory(dir, HISTORY_DAYS)).toContain('Ausfahrt freihalten.')
+  })
+})
+
+describe('Vorgemerkte Fakten (Claude-App → Brille)', () => {
+  test('werden gesammelt, ohne Doppelte, und beim Abholen geleert', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'raybanclaude-merken-')), 'neu.json')
+    queueMemory(file, 'Mag Jazz')
+    queueMemory(file, 'mag jazz')
+    queueMemory(file, 'Wohnt in Hamburg')
+    expect(takeQueuedMemory(file)).toEqual(['mag jazz', 'Wohnt in Hamburg']) // neueste Schreibweise gewinnt
+    expect(takeQueuedMemory(file)).toEqual([])
   })
 })
