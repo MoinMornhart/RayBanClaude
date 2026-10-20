@@ -8,7 +8,6 @@ struct ContentView: View {
     @State private var textInput = ""
     @State private var hasRequestedPermissions = false
     @State private var showQuickActions = false
-    @State private var pulse = false
 
     var body: some View {
         layeredContent
@@ -56,11 +55,12 @@ struct ContentView: View {
         ZStack {
             VStack {
                 Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [.clear, Color.hudBackground.opacity(0.65), Color.hudBackground.opacity(0.9)],
+                               startPoint: .top, endPoint: .bottom)
                     .frame(height: 460)
             }
             VStack {
-                LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [Color.hudBackground.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
                     .frame(height: 140)
                 Spacer()
             }
@@ -222,14 +222,23 @@ struct ContentView: View {
             viewModel.modeManager.setActiveMode(mode)
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: mode.icon).font(.system(size: 11, weight: .semibold))
-                Text(mode.name).font(.system(size: 11, weight: .semibold, design: .rounded)).lineLimit(1).fixedSize()
+                Image(systemName: mode.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isActive ? Color.hudInk : mode.swiftColor)
+                Text(mode.name)
+                    .font(.hudMono(11, weight: .semibold))
+                    .textCase(.uppercase)
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .foregroundStyle(isActive ? .white : .white.opacity(0.75))
+            .foregroundStyle(isActive ? Color.hudInk : Color.hudMuted)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Capsule().fill(isActive ? mode.swiftColor.opacity(0.85) : .white.opacity(0.1)))
-            .overlay(Capsule().strokeBorder(isActive ? mode.swiftColor : .clear, lineWidth: 1.5))
+            .background(isActive ? mode.swiftColor.opacity(0.3) : Color.hudPanel,
+                        in: RoundedRectangle(cornerRadius: HUDMetrics.radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: HUDMetrics.radius, style: .continuous)
+                .strokeBorder(isActive ? mode.swiftColor : Color.hudLine, lineWidth: HUDMetrics.hairline))
+            .shadow(color: isActive ? mode.swiftColor.opacity(0.6) : .clear, radius: 8)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Modus \(mode.name)\(isActive ? ", aktiv" : "")")
@@ -243,12 +252,13 @@ struct ContentView: View {
                         haptic(.light)
                         Task { await viewModel.sendText(action) }
                     } label: {
+                        let color = viewModel.modeManager.activeMode.swiftColor
                         Text(action)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.9))
+                            .font(.hudMono(11, weight: .medium))
+                            .foregroundStyle(Color.hudInk)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
-                            .background(viewModel.modeManager.activeMode.swiftColor.opacity(0.3), in: Capsule())
+                            .hudPanel(border: color.opacity(0.6), tint: color)
                     }
                     .buttonStyle(.plain)
                 }
@@ -267,15 +277,21 @@ struct ContentView: View {
     // MARK: - Statusleiste
 
     private var topBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Circle()
                     .fill(routeColor)
-                    .frame(width: 8, height: 8)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: routeColor, radius: 4)
                 Image(systemName: routeIcon)
                     .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.hudCyan)
                 Text(routeLabel)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .font(.hudMono(11, weight: .semibold))
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+                    .lineLimit(1)
+                    .fixedSize()
                 Image(systemName: viewModel.activeFrameSource.icon)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(frameSourceColor)
@@ -283,24 +299,29 @@ struct ContentView: View {
                     BatteryBadge(rayBanManager: viewModel.rayBanManager)
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
+            .hudPanel(border: .hudLineStrong)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(routeAccessibility)
 
-            HStack(spacing: 5) {
-                stateIcon.font(.system(size: 11, weight: .medium)).foregroundStyle(stateColor)
+            HStack(spacing: 6) {
+                stateIcon
+                    .font(.system(size: 11, weight: .medium))
+                    .hudGlow(stateColor, radius: 4)
                 Text(viewModel.state.rawValue)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.hudMono(11, weight: .semibold))
+                    .textCase(.uppercase)
+                    .tracking(0.8)
                     .lineLimit(1)
                     .fixedSize()
             }
-            .padding(.horizontal, 12)
+            .foregroundStyle(stateColor)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
+            .hudPanel(border: stateColor.opacity(0.5))
 
-            Spacer()
+            Spacer(minLength: 0)
 
             Button {
                 haptic(.light)
@@ -308,25 +329,35 @@ struct ContentView: View {
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color.hudCyan)
+                    .hudGlow(radius: 4)
                     .frame(width: 36, height: 36)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .hudPanel(border: .hudLineStrong)
             }
             .accessibilityLabel("Einstellungen")
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Color.hudInk)
     }
 
     private var pairingHint: some View {
         HStack(spacing: 12) {
-            Image(systemName: "qrcode.viewfinder").font(.system(size: 26)).foregroundStyle(Color.anthropicOrange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Mit deinem PC koppeln").font(.headline)
+            Image(systemName: "qrcode.viewfinder")
+                .font(.system(size: 26))
+                .foregroundStyle(Color.hudCyan)
+                .hudGlow()
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Mit deinem PC koppeln")
+                    .font(.hudDisplay(14))
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color.hudInk)
                 Text("Auf dem PC Claude starten, Dashboard öffnen (localhost:18790) und den QR-Code mit der iPhone-Kamera scannen.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(Color.hudMuted)
             }
         }
         .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hudPanel(border: .hudLineStrong, glow: .hudGlow, accent: .hudCyan)
     }
 
     // MARK: - Banner
@@ -334,81 +365,114 @@ struct ContentView: View {
     private var liveTranscriptionBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "waveform")
-                .foregroundStyle(Color.anthropicOrange)
+                .foregroundStyle(Color.hudCyan)
+                .hudGlow(radius: 4)
                 .symbolEffect(.variableColor.iterative, isActive: true)
-            Text(viewModel.currentTranscription).font(.subheadline).lineLimit(2)
+            Text(viewModel.currentTranscription)
+                .font(.subheadline)
+                .foregroundStyle(Color.hudInk)
+                .lineLimit(2)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .hudPanel(border: .hudLineStrong, accent: .hudCyan)
     }
 
     private func codeToastBanner(_ code: DetectedCode) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "qrcode").foregroundStyle(.green)
+            Image(systemName: "qrcode").foregroundStyle(Color.hudOK).hudGlow(.hudOK, radius: 4)
             VStack(alignment: .leading, spacing: 2) {
-                Text(code.typeLabel).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(.green.opacity(0.8))
-                Text(code.value).font(.system(size: 13, weight: .medium)).lineLimit(2)
+                Text(code.typeLabel)
+                    .font(.hudMono(10, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(Color.hudOK.opacity(0.85))
+                Text(code.value).font(.system(size: 13, weight: .medium)).foregroundStyle(Color.hudInk).lineLimit(2)
             }
             Spacer()
             Button { viewModel.copyCodeToClipboard(code) } label: {
-                Image(systemName: "doc.on.doc").frame(width: 30, height: 30).background(.white.opacity(0.15), in: Circle())
+                Image(systemName: "doc.on.doc")
+                    .foregroundStyle(Color.hudOK)
+                    .frame(width: 30, height: 30)
+                    .hudPanel(border: Color.hudOK.opacity(0.5))
             }
             .accessibilityLabel("Code kopieren")
             Button { viewModel.sendCodeToChat(code) } label: {
-                Image(systemName: "arrow.up.circle.fill").font(.system(size: 24)).foregroundStyle(.green)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color.hudBackground)
+                    .frame(width: 30, height: 30)
+                    .background(Color.hudOK, in: RoundedRectangle(cornerRadius: HUDMetrics.radius))
+                    .hudGlow(.hudOK)
             }
             .accessibilityLabel("Code an Claude senden")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .hudPanel(border: Color.hudOK.opacity(0.5), accent: .hudOK)
     }
 
     private func noticeBanner(_ text: String) -> some View {
         Text(text)
-            .font(.caption.weight(.medium))
+            .font(.hudMono(11, weight: .medium))
+            .foregroundStyle(Color.hudInk)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
+            .hudPanel(border: .hudLineStrong)
     }
 
     private func errorBanner(_ error: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-            Text(error).font(.caption).lineLimit(3)
+                .foregroundStyle(Color.hudBad)
+                .hudGlow(.hudBad, radius: 4)
+            Text(error).font(.caption).foregroundStyle(Color.hudInk).lineLimit(3)
             Spacer()
             Button { viewModel.errorMessage = nil } label: {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
-                    .frame(width: 22, height: 22).background(.white.opacity(0.2), in: Circle())
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color.hudBad)
+                    .frame(width: 22, height: 22)
+                    .hudPanel(border: Color.hudBad.opacity(0.6))
             }
             .accessibilityLabel("Meldung schließen")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .hudPanel(border: .hudBad, glow: Color.hudBad.opacity(0.35), accent: .hudBad, tint: .hudBad)
     }
 
     // MARK: - Eingabe
 
     private var textInputBar: some View {
         HStack(spacing: 8) {
-            TextField("Nachricht …", text: $textInput, axis: .vertical)
+            Text("›")
+                .font(.hudMono(17, weight: .bold))
+                .foregroundStyle(Color.hudCyan)
+                .hudGlow(radius: 4)
+                .accessibilityHidden(true)
+            TextField("Nachricht", text: $textInput,
+                      prompt: Text("Nachricht …").foregroundStyle(Color.hudMuted), axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.plain)
-                .tint(.anthropicOrange)
+                .foregroundStyle(Color.hudInk)
+                .tint(.hudCyan)
                 .onSubmit(sendTextInput)
             if !textInput.isEmpty {
                 Button(action: sendTextInput) {
-                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 28)).foregroundStyle(Color.anthropicOrange)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color.hudBackground)
+                        .frame(width: 30, height: 30)
+                        .background(Color.hudCyan, in: RoundedRectangle(cornerRadius: HUDMetrics.radius))
+                        .hudGlow()
                 }
                 .accessibilityLabel("Senden")
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .hudPanel(border: .hudLineStrong)
     }
 
     private func sendTextInput() {
@@ -426,51 +490,14 @@ struct ContentView: View {
             } label: {
                 VStack(spacing: 4) {
                     Image(systemName: "arrow.counterclockwise").font(.system(size: 18, weight: .medium))
-                    Text("Neu").font(.system(size: 10, weight: .medium))
+                    Text("Neu").font(.hudMono(10, weight: .semibold)).textCase(.uppercase).tracking(1)
                 }
-                .foregroundStyle(.white.opacity(0.65))
+                .foregroundStyle(Color.hudMuted)
                 .frame(maxWidth: .infinity)
             }
             .accessibilityLabel("Gespräch zurücksetzen")
 
-            Button {
-                haptic(viewModel.state == .speaking ? .rigid : .medium)
-                if viewModel.state == .speaking {
-                    viewModel.interruptSpeaking()
-                } else if viewModel.canTalk {
-                    viewModel.toggleListening()
-                } else {
-                    Task { await viewModel.connect() }
-                }
-            } label: {
-                ZStack {
-                    if viewModel.state == .listening {
-                        Circle()
-                            .stroke(Color.red.opacity(0.4), lineWidth: 3)
-                            .frame(width: 82, height: 82)
-                            .scaleEffect(pulse ? 1.2 : 1.0)
-                            .opacity(pulse ? 0 : 1)
-                            .onAppear {
-                                pulse = false
-                                withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) { pulse = true }
-                            }
-                    }
-                    Circle()
-                        .fill(micButtonColor.gradient)
-                        .frame(width: 72, height: 72)
-                        .shadow(color: micButtonColor.opacity(0.4), radius: 12, y: 4)
-                    if viewModel.isProcessing && viewModel.state == .thinking {
-                        ProgressView().tint(.white)
-                    } else {
-                        Image(systemName: micButtonIcon)
-                            .font(.system(size: 26, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .accessibilityLabel(micAccessibilityLabel)
+            micButton
 
             Button {
                 haptic(.light)
@@ -480,18 +507,74 @@ struct ContentView: View {
                     Image(systemName: viewModel.activeFrameSource.icon)
                         .font(.system(size: 18, weight: .medium))
                         .foregroundStyle(frameSourceColor)
+                        .hudGlow(frameSourceColor, radius: 4)
                     Text(viewModel.activeFrameSource.shortLabel)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.65))
+                        .font(.hudMono(10, weight: .semibold))
+                        .textCase(.uppercase)
+                        .tracking(1)
+                        .foregroundStyle(Color.hudMuted)
                 }
                 .frame(maxWidth: .infinity)
             }
             .accessibilityLabel("Kamera wechseln, aktuell \(viewModel.activeFrameSource.rawValue)")
         }
         .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        // Platz für die Reaktor-Ringe um den Mikrofon-Knopf
+        .padding(.vertical, 18)
+        .hudPanel(border: .hudLineStrong)
+        .overlay(HUDCorners(length: 10).stroke(Color.hudCyan.opacity(0.8), lineWidth: 1.5))
         .padding(.horizontal, 12)
+    }
+
+    /// Mikrofon-Knopf; im Bereitschafts-Zustand („Sag ‚Hey Claude‘“) drehen sich Reaktor-Ringe darum
+    private var micButton: some View {
+        Button {
+            haptic(viewModel.state == .speaking ? .rigid : .medium)
+            if viewModel.state == .speaking {
+                viewModel.interruptSpeaking()
+            } else if viewModel.canTalk {
+                viewModel.toggleListening()
+            } else {
+                Task { await viewModel.connect() }
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(RadialGradient(colors: [micButtonColor, micButtonColor.opacity(0.55)],
+                                         center: .center, startRadius: 6, endRadius: 40))
+                    .overlay(Circle().strokeBorder(micButtonColor, lineWidth: 1.5))
+                    .shadow(color: micButtonColor.opacity(micIsDimmed ? 0 : 0.6), radius: 16)
+                if viewModel.isProcessing && viewModel.state == .thinking {
+                    ProgressView().tint(micIconColor)
+                } else {
+                    Image(systemName: micButtonIcon)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(micIconColor)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+            }
+            .frame(width: 72, height: 72)
+            .background { micHalo }
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel(micAccessibilityLabel)
+    }
+
+    @ViewBuilder
+    private var micHalo: some View {
+        switch viewModel.state {
+        case .standby:
+            ReactorRings(diameter: 112).transition(.opacity)
+        case .listening:
+            ListeningPulse(color: .hudBad)
+        default:
+            Circle()
+                .strokeBorder(Color.hudLineStrong, lineWidth: HUDMetrics.hairline)
+                .frame(width: 88, height: 88)
+                .allowsHitTesting(false)
+        }
     }
 
     // MARK: - Hilfen
@@ -510,22 +593,35 @@ struct ContentView: View {
 
     private var stateColor: Color {
         switch viewModel.state {
-        case .disconnected: return .red
-        case .idle: return .green
-        case .standby: return .mint
-        case .listening: return .anthropicOrange
-        case .thinking: return .yellow
-        case .speaking: return .blue
+        case .disconnected: return .hudBad
+        case .idle: return .hudOK
+        case .standby: return .hudCyan
+        case .listening: return .hudBad
+        case .thinking: return .hudWarn
+        case .speaking: return .hudCyan
+        }
+    }
+
+    /// Ohne Verbindung ist der Knopf gedimmt (tippen verbindet neu)
+    private var micIsDimmed: Bool {
+        switch viewModel.state {
+        case .listening, .thinking, .speaking: return false
+        default: return !viewModel.canTalk
         }
     }
 
     private var micButtonColor: Color {
         switch viewModel.state {
-        case .listening: return .red
-        case .thinking: return .anthropicOrange
-        case .speaking: return .blue
-        default: return viewModel.canTalk ? .anthropicOrange : .gray
+        case .listening: return .hudBad
+        case .thinking: return .hudGold
+        case .speaking: return .hudCyan
+        default: return micIsDimmed ? .hudLineStrong : .hudCyan
         }
+    }
+
+    /// Nachtblaues Symbol auf leuchtendem Knopf, helles auf gedimmtem
+    private var micIconColor: Color {
+        micIsDimmed ? .hudInk : .hudBackground
     }
 
     private var micButtonIcon: String {
@@ -550,9 +646,9 @@ struct ContentView: View {
 
     private var routeColor: Color {
         switch viewModel.route {
-        case .pc: return .green
-        case .direct: return .orange
-        case .none: return .red
+        case .pc: return .hudOK
+        case .direct: return .hudWarn
+        case .none: return .hudBad
         }
     }
 
@@ -582,11 +678,11 @@ struct ContentView: View {
 
     private var frameSourceColor: Color {
         switch viewModel.frameSourceStatus {
-        case .connected: return .green
-        case .standby: return .green.opacity(0.7)
-        case .connecting: return .yellow
-        case .error: return .red
-        case .disconnected: return .white.opacity(0.5)
+        case .connected: return .hudOK
+        case .standby: return .hudOK.opacity(0.7)
+        case .connecting: return .hudWarn
+        case .error: return .hudBad
+        case .disconnected: return .hudMuted
         }
     }
 
@@ -602,37 +698,64 @@ struct PermissionCard: View {
     let answer: (Bool) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Label("Claude möchte \(request.toolName) ausführen", systemImage: "lock.shield.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.anthropicOrange)
+                .font(.hudDisplay(13))
+                .textCase(.uppercase)
+                .foregroundStyle(Color.hudGold)
+                .hudGlow(.hudGold, radius: 4)
             if !request.description.isEmpty {
-                Text(request.description).font(.caption)
+                Text(request.description).font(.caption).foregroundStyle(Color.hudInk)
             }
             if !request.inputPreview.isEmpty {
                 Text(request.inputPreview)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.hudMono(11, weight: .regular))
+                    .foregroundStyle(Color.hudInk)
                     .lineLimit(4)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color.hudBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: HUDMetrics.radius))
+                    .overlay(RoundedRectangle(cornerRadius: HUDMetrics.radius).strokeBorder(Color.hudLine, lineWidth: HUDMetrics.hairline))
             }
             HStack {
                 Button(role: .destructive) { answer(false) } label: {
                     Label("Ablehnen", systemImage: "xmark").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(HUDButtonStyle(color: .hudBad))
                 Button { answer(true) } label: {
                     Label("Erlauben", systemImage: "checkmark").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
+                .buttonStyle(HUDButtonStyle(color: .hudOK, filled: true))
             }
-            Text("Oder einfach „Ja“ bzw. „Nein“ sagen.").font(.caption2).foregroundStyle(.secondary)
+            Text("Oder einfach „Ja“ bzw. „Nein“ sagen.").font(.hudMono(10)).foregroundStyle(Color.hudMuted)
         }
         .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.anthropicOrange.opacity(0.6)))
+        .hudPanel(border: Color.hudGold.opacity(0.7), glow: Color.hudGold.opacity(0.3), accent: .hudGold, tint: .hudGold)
+    }
+}
+
+// MARK: - Mikrofon hört zu
+
+/// Pulsierender Ring, solange das Mikrofon offen ist (steht bei „Bewegung reduzieren“ still)
+struct ListeningPulse: View {
+    let color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        Circle()
+            .stroke(color.opacity(0.5), lineWidth: 3)
+            .frame(width: 84, height: 84)
+            .scaleEffect(pulse ? 1.25 : 1.0)
+            .opacity(pulse ? 0 : 1)
+            .shadow(color: color, radius: 6)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onAppear {
+                guard !reduceMotion else { return }
+                pulse = false
+                withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) { pulse = true }
+            }
     }
 }
 
@@ -671,30 +794,51 @@ struct RayBanLayer: View {
         ZStack {
             RayBanVideoView(rayBanManager: rayBanManager)
             if rayBanManager.latestImage == nil {
-                Color.black
-                VStack(spacing: 16) {
-                    Image(systemName: "eyeglasses")
-                        .font(.system(size: 52, weight: .thin))
-                        .foregroundStyle(Color.anthropicOrange.opacity(0.6))
+                HUDBackdrop()
+                VStack(spacing: 18) {
+                    lens
                     if status == .standby && isConnected {
-                        Text("Kamera aus – die Brille fotografiert nur, wenn du etwas zeigst oder fragst („Was ist das?“).")
+                        HUDLabel("Kamera aus")
+                        Text("Die Brille fotografiert nur auf Zuruf – wenn du etwas zeigst oder fragst („Was ist das?“).")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.hudMuted)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
                     } else if status.isConnected {
-                        ProgressView().tint(.anthropicOrange)
-                        Text("Empfange Bild der Brille …").font(.subheadline).foregroundStyle(.secondary)
+                        ProgressView().tint(.hudCyan)
+                        HUDLabel("Empfange Bild der Brille …")
                     } else {
                         Text(isConnected ? status.label : "Erst mit dem PC verbinden")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(.hudMono(13))
+                            .foregroundStyle(Color.hudMuted)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
                     }
                 }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 32)
+                .overlay(HUDCorners(length: 18).stroke(Color.hudCyan.opacity(0.7), lineWidth: 2))
+                .padding(.horizontal, 32)
+                .accessibilityElement(children: .combine)
             }
         }
+    }
+
+    /// Brillen-Symbol in einer stillstehenden Linse aus Haarlinien
+    private var lens: some View {
+        ZStack {
+            Circle()
+                .fill(RadialGradient(colors: [Color.hudGlow, .clear], center: .center, startRadius: 0, endRadius: 64))
+            Circle()
+                .strokeBorder(Color.hudLineStrong, lineWidth: HUDMetrics.hairline)
+            Circle()
+                .stroke(Color.hudRing, style: StrokeStyle(lineWidth: HUDMetrics.hairline, dash: [3, 4]))
+                .padding(10)
+            Image(systemName: "eyeglasses")
+                .font(.system(size: 46, weight: .thin))
+                .foregroundStyle(Color.hudCyan)
+                .hudGlow(radius: 10)
+        }
+        .frame(width: 128, height: 128)
+        .accessibilityHidden(true)
     }
 }
 
@@ -704,7 +848,8 @@ struct BatteryBadge: View {
     var body: some View {
         if let battery = rayBanManager.batteryLevel {
             Text("\(battery) %")
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .font(.hudMono(11, weight: .medium))
+                .foregroundStyle(battery < 15 ? Color.hudBad : Color.hudInk)
                 .accessibilityLabel("Akku der Brille \(battery) Prozent")
         }
     }
@@ -715,7 +860,7 @@ struct RayBanVideoView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIImageView {
         let view = UIImageView()
-        view.backgroundColor = .black
+        view.backgroundColor = UIColor(Color.hudBackground)
         view.contentMode = .scaleAspectFill
         view.clipsToBounds = true
         return view
@@ -749,11 +894,12 @@ struct TimersBar: View {
                             }
                             Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).opacity(0.6)
                         }
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .font(.hudMono(12, weight: .semibold))
+                        .textCase(.uppercase)
+                        .foregroundStyle(Color.hudGold)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color.orange.opacity(0.35), in: Capsule())
+                        .hudPanel(border: Color.hudGold.opacity(0.7), glow: Color.hudGold.opacity(0.25), tint: .hudGold)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("\(timer.isAlarm ? "Wecker" : "Timer") \(timer.label), tippen zum Löschen")
@@ -790,30 +936,30 @@ struct ActionConfirmationCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Label(confirmation.title, systemImage: icon)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.green)
+                .font(.hudDisplay(14))
+                .textCase(.uppercase)
+                .foregroundStyle(Color.hudOK)
+                .hudGlow(.hudOK, radius: 4)
             if case .message(let text) = confirmation.kind {
-                Text("„\(text)“").font(.caption).lineLimit(3)
+                Text("„\(text)“").font(.caption).foregroundStyle(Color.hudInk).lineLimit(3)
             }
             ForEach(confirmation.options) { option in
                 Button { onSelect(option) } label: {
                     Label(option.label, systemImage: icon).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
+                .buttonStyle(HUDButtonStyle(color: .hudOK, filled: true))
             }
             Button(role: .cancel, action: onCancel) {
                 Text("Abbrechen").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(HUDButtonStyle(color: .hudMuted))
             if confirmation.options.count == 1 {
-                Text("Oder einfach „Ja“ bzw. „Nein“ sagen.").font(.caption2).foregroundStyle(.secondary)
+                Text("Oder einfach „Ja“ bzw. „Nein“ sagen.").font(.hudMono(10)).foregroundStyle(Color.hudMuted)
             }
         }
         .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.green.opacity(0.6)))
+        .hudPanel(border: Color.hudOK.opacity(0.7), glow: Color.hudOK.opacity(0.25), accent: .hudOK, tint: .hudOK)
     }
 }

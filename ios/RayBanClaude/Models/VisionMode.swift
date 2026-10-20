@@ -10,7 +10,7 @@ struct VisionMode: Identifiable, Codable, Equatable {
     let quickActions: [String] // vorgeschlagene Sprachbefehle
     let isBuiltIn: Bool
 
-    var swiftColor: Color { Color(hex: color) ?? .orange }
+    var swiftColor: Color { Color(hex: color) ?? .anthropicOrange }
 
     static func == (lhs: VisionMode, rhs: VisionMode) -> Bool {
         lhs.id == rhs.id
