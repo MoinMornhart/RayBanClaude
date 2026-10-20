@@ -86,6 +86,10 @@ final class SessionViewModel: ObservableObject {
     private let replyTimeout: UInt64 = 180_000_000_000
     /// Nach einer Antwort so lange auf eine Rückfrage warten, dann wieder aufs Weckwort
     private let followUpTimeout: TimeInterval = 8
+    /// Nach dem Doppeltipp so lange auf die Frage warten (wie nach „Hey Claude“)
+    private let gestureListenTimeout: TimeInterval = 7
+    /// Frage zur Capture-Taste – `VisionIntent` erkennt daran, dass ein Foto nötig ist
+    static let gesturePhotoQuestion = "Was siehst du?"
 
     init(config: ClaudeConfig = ClaudeConfig.load()) {
         self.config = config
@@ -141,6 +145,7 @@ final class SessionViewModel: ObservableObject {
         phoneActions.memory = config.memoryEnabled ? memory : nil
         cameraManager.configure(frameInterval: config.videoFrameInterval, jpegQuality: config.videoJPEGQuality)
         rayBanManager.configure(frameInterval: config.videoFrameInterval, jpegQuality: config.videoJPEGQuality)
+        rayBanManager.gesturesEnabled = config.glassesGestures
     }
 
     private func setupBindings() {
@@ -172,6 +177,9 @@ final class SessionViewModel: ObservableObject {
                 self.frameSourceStatus = status
             }
             .store(in: &cancellables)
+
+        // Touchpad und Capture-Taste der Brille (wie Meta AI)
+        rayBanManager.onGesture = { [weak self] gesture in self?.handleGlassesGesture(gesture) }
 
         cameraManager.$connectionStatus
             .sink { [weak self] status in
@@ -352,6 +360,8 @@ final class SessionViewModel: ObservableObject {
             }
         case .active:
             Task { await phoneActions.refreshTimers() }
+            // Wurde die Brille vor dem Anhalten freigegeben, kommen die Gesten jetzt zurück
+            if activeFrameSource == .rayBan, canTalk { rayBanManager.restoreGestureSession() }
             if !speechManager.isSpeaking, !speechManager.isListening, state != .disconnected { goIdle() }
         default:
             break
@@ -513,6 +523,31 @@ final class SessionViewModel: ObservableObject {
         state = restingState
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.startListening()
+        }
+    }
+
+    // MARK: - Gesten der Brille
+
+    /// Wie Meta AI: Doppeltipp → sofort zuhören (ohne Weckwort, auch mitten in einer Antwort),
+    /// Capture-Taste → Foto und „Was siehst du?“, Zurück → abbrechen.
+    private func handleGlassesGesture(_ gesture: GlassesGesture) {
+        guard activeFrameSource == .rayBan else { return }
+        guard canTalk else {
+            notice = "Nicht verbunden – mit dem PC koppeln oder „Ohne PC“ einrichten"
+            return
+        }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        switch gesture {
+        case .listen:
+            startListening(noSpeechTimeout: gestureListenTimeout)
+        case .photo:
+            speechManager.stopSpeaking()
+            rayBanManager.prepareCapture() // Kamera schon wecken, bevor die Frage rausgeht
+            Task { await sendText(Self.gesturePhotoQuestion) }
+        case .cancel:
+            speechManager.stopSpeaking()
+            speechManager.stopListening()
+            goIdle()
         }
     }
 
