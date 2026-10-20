@@ -633,8 +633,9 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
     private func scheduleSessionRetry() {
         // Bügel zu: nicht probieren – beim Aufklappen baut `apply` die Sitzung neu auf
         guard isArmed, !isSuspended, gesturesEnabled, hingesOpen != false, sessionFailures < maxSessionRetries else { return }
+        // Schon geplant (z. B. Startfehler meldet sich über den Status und den Rückgabewert) → nur einmal zählen
+        guard sessionRetryTask == nil else { return }
         sessionFailures += 1
-        sessionRetryTask?.cancel()
         sessionRetryTask = Task { [weak self, sessionRetryDelay] in
             try? await Task.sleep(nanoseconds: sessionRetryDelay)
             guard !Task.isCancelled, let self else { return }
