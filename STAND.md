@@ -35,6 +35,7 @@ Neu in 2.1.0 (aus den Zweigen vom 20.10., am 24.10. nach `main` übernommen):
 - Release v2.1.0 auf GitHub veröffentlichen (aus der Cloud-Sitzung nicht möglich – `gh` hat dort keine Anmeldung); die Workflows hängen Setup.exe und .ipa danach selbst an.
 - Neue Screenshots im Jarvis-Look in README (`docs/images/app-*.png`, 600 px breit) und Projektseite (eingebettet, 520 px) einbauen: liegen als Artefakt `ios-screenshots` im Workflow „iOS-Screenshots“; der Download aus der Cloud scheiterte an der Netzwerk-Freigabe (`*.blob.core.windows.net`).
 - Alte Zweige `claude/reverent-moore-d93bfa` und `claude/zealous-pascal-dfcf80` löschen (nach Philips OK).
+- **iPhone-App kostenlos aufs iPhone:** Sideloadly scheiterte bei Philip mit kostenloser Apple-ID, deshalb zahlt er gerade. Vermutlich Apples Sperre kostenloser Konten seit Sommer 2026 (Fehler 0xe8008024 „provisioning profile is banned“, betrifft auch AltStore/SideStore); gemeldet hilft meist eine neue kostenlose Apple-ID. Einrichtung (z. B. SideStore mit Auffrischen am iPhone oder Sideloadly/AltServer über den PC) erst, wenn Philip Bescheid sagt.
 - Issue #1 (VibeWorks): Abhängigkeiten aktualisieren, u. a. `@anthropic-ai/sdk` 0.135 → 1.3 (Major).
 - Idee: Token-Schutz in fremden WLANs – gegenseitige Prüfung ohne Klartext-Token (App schickt Token im WLAN nur an die gespeicherte Heim-Adresse).
 - Bekannte Grenzen: Speicherleck im Meta-DAT-SDK bei Gen 2 (~4 MB/min, Meta-Issue #324) → bei langen Sitzungen App neu starten; WLAN-Verbindung nur HTTP (mit Token); Prompt-Injection über Kamerabilder nicht ganz vermeidbar.
