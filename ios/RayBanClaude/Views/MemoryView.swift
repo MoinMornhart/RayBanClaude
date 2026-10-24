@@ -12,58 +12,62 @@ struct MemoryView: View {
 
     var body: some View {
         List {
-            Section {
-                Toggle("Claude merkt sich Dinge über dich", isOn: $enabled)
-            } footer: {
-                Text("Sag zum Beispiel „Hey Claude, merk dir, dass meine Tochter Mia heißt“ – oder Claude notiert sich von selbst, was dauerhaft wichtig ist. „Vergiss das mit …“ löscht wieder. Die Liste liegt nur auf diesem iPhone und geht zu Beginn jedes Gesprächs an Claude.")
-            }
-
-            if enabled {
+            Group {
                 Section {
-                    Button {
-                        showImport = true
-                    } label: {
-                        Label("Aus der Claude-App übernehmen", systemImage: "square.and.arrow.down.on.square")
-                    }
-                    HStack {
-                        TextField("Selbst eintragen, z. B. „Trinkt Espresso ohne Zucker“", text: $newFact)
-                            .submitLabel(.done)
-                            .onSubmit(addFact)
-                        Button("Merken", action: addFact)
-                            .disabled(MemoryStore.clean(newFact).isEmpty)
-                    }
+                    Toggle("Claude merkt sich Dinge über dich", isOn: $enabled)
+                } footer: {
+                    Text("Sag zum Beispiel „Hey Claude, merk dir, dass meine Tochter Mia heißt“ – oder Claude notiert sich von selbst, was dauerhaft wichtig ist. „Vergiss das mit …“ löscht wieder. Die Liste liegt nur auf diesem iPhone und geht zu Beginn jedes Gesprächs an Claude.")
                 }
 
-                Section {
-                    if memory.items.isEmpty {
-                        Text("Noch nichts gemerkt.").foregroundStyle(.secondary)
-                    }
-                    ForEach(memory.items.reversed()) { item in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.text)
-                            Text(item.created, format: .dateTime.day().month().year())
-                                .font(.caption2).foregroundStyle(.secondary)
+                if enabled {
+                    Section {
+                        Button {
+                            showImport = true
+                        } label: {
+                            Label("Aus der Claude-App übernehmen", systemImage: "square.and.arrow.down.on.square")
+                        }
+                        HStack {
+                            TextField("Selbst eintragen, z. B. „Trinkt Espresso ohne Zucker“", text: $newFact)
+                                .submitLabel(.done)
+                                .onSubmit(addFact)
+                            Button("Merken", action: addFact)
+                                .disabled(MemoryStore.clean(newFact).isEmpty)
                         }
                     }
-                    .onDelete { offsets in
-                        // Anzeige ist umgekehrt (neueste oben) → Indizes zurückrechnen
-                        let count = memory.items.count
-                        memory.remove(at: IndexSet(offsets.map { count - 1 - $0 }))
-                    }
-                } header: {
-                    Text("Gemerkt (\(memory.items.count))")
-                } footer: {
-                    Text("Zum Löschen nach links wischen.")
-                }
 
-                if !memory.items.isEmpty {
                     Section {
-                        Button("Alles vergessen", role: .destructive) { confirmClear = true }
+                        if memory.items.isEmpty {
+                            Text("Noch nichts gemerkt.").foregroundStyle(Color.hudMuted)
+                        }
+                        ForEach(memory.items.reversed()) { item in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.text)
+                                Text(item.created, format: .dateTime.day().month().year())
+                                    .font(.hudMono(10)).foregroundStyle(Color.hudMuted)
+                            }
+                        }
+                        .onDelete { offsets in
+                            // Anzeige ist umgekehrt (neueste oben) → Indizes zurückrechnen
+                            let count = memory.items.count
+                            memory.remove(at: IndexSet(offsets.map { count - 1 - $0 }))
+                        }
+                    } header: {
+                        HUDLabel("Gemerkt (\(memory.items.count))")
+                    } footer: {
+                        Text("Zum Löschen nach links wischen.")
+                    }
+
+                    if !memory.items.isEmpty {
+                        Section {
+                            Button("Alles vergessen", role: .destructive) { confirmClear = true }
+                        }
                     }
                 }
             }
+            .hudSection()
         }
         .navigationTitle("Gedächtnis")
+        .hudList()
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showImport) { MemoryImportView(memory: memory) }
         .confirmationDialog("Wirklich alle \(memory.items.count) Einträge löschen?", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -98,7 +102,9 @@ struct MemoryImportView: View {
                         .font(.callout)
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Color.hudBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: HUDMetrics.radius))
+                        .overlay(RoundedRectangle(cornerRadius: HUDMetrics.radius)
+                            .strokeBorder(Color.hudLineStrong, lineWidth: HUDMetrics.hairline))
                     Button {
                         UIPasteboard.general.string = Self.prompt
                         copied = true
@@ -107,23 +113,28 @@ struct MemoryImportView: View {
                     }
                     step(2, "Kopiere Claudes Antwort und füge sie unten ein.")
                 } header: {
-                    Text("So geht’s")
+                    HUDLabel("So geht’s")
                 } footer: {
                     Text("Noch einfacher am PC: Mit RayBan Claude ist die Claude-Desktop-App verknüpft. Sag dort einfach „Übertrag, was du über mich weißt, an die Brille“ – Claude schreibt es direkt hierher.")
                 }
+                .hudSection()
 
                 Section {
-                    TextEditor(text: $text).frame(minHeight: 160)
+                    TextEditor(text: $text)
+                        .frame(minHeight: 160)
+                        .scrollContentBackground(.hidden)
                     // PasteButton fügt ohne die Rückfrage „Einfügen erlauben?“ ein
                     PasteButton(payloadType: String.self) { strings in
                         if let pasted = strings.first { text = pasted }
                     }
                 } header: {
-                    Text("Antwort von Claude")
+                    HUDLabel("Antwort von Claude")
                 } footer: {
                     Text("Jede Zeile wird ein Eintrag. Lies kurz drüber und lösch, was Claude nicht wissen soll – alles bleibt nur auf diesem iPhone.")
                 }
+                .hudSection()
             }
+            .hudList()
             .navigationTitle("Aus der Claude-App")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -143,11 +154,7 @@ struct MemoryImportView: View {
 
     private func step(_ number: Int, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text("\(number)")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.anthropicOrange))
+            HUDStepBadge(number: number)
             Text(text)
         }
     }

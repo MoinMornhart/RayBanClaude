@@ -20,12 +20,14 @@ struct RayBanClaudeApp: App {
             print("[App] Meta-SDK konnte nicht konfiguriert werden: \(error)")
         }
         _viewModel = StateObject(wrappedValue: SessionViewModel())
+        HUDAppearance.apply()
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView(viewModel: viewModel)
                 .preferredColorScheme(.dark)
+                .tint(.hudCyan)
                 // Kopplungs-QR-Code (raybanclaude://pair?…) und Rückrufe der Meta-AI-App
                 .onOpenURL { url in viewModel.handleIncomingURL(url) }
         }

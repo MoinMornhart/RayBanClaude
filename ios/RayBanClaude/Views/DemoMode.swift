@@ -14,7 +14,7 @@ enum DemoMode {
 struct DemoSceneView: View {
     var body: some View {
         ZStack {
-            RadialGradient(colors: [Color(white: 0.22), Color(white: 0.06)], center: .init(x: 0.5, y: 0.35),
+            RadialGradient(colors: [Color.hudViewfinder, Color.hudBackground], center: .init(x: 0.5, y: 0.35),
                            startRadius: 20, endRadius: 520)
             VStack(alignment: .leading, spacing: 5) {
                 Text("THERMAVIA").font(.system(size: 26, weight: .heavy, design: .rounded)).tracking(2)

@@ -20,8 +20,11 @@ struct TranscriptView: View {
                 withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(lastId, anchor: .bottom) }
             }
         }
-        .background(.black.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.hudBackground.opacity(0.6))
+        .clipShape(RoundedRectangle(cornerRadius: HUDMetrics.radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: HUDMetrics.radius, style: .continuous)
+            .strokeBorder(Color.hudLine, lineWidth: HUDMetrics.hairline))
+        .overlay(HUDCorners(length: 12).stroke(Color.hudCyan.opacity(0.75), lineWidth: 1.5))
     }
 }
 
@@ -33,8 +36,8 @@ struct MessageBubble: View {
         switch message.role {
         case .system:
             Text(message.text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.hudMono(11))
+                .foregroundStyle(Color.hudMuted)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 2)
         case .user, .assistant:
@@ -44,23 +47,28 @@ struct MessageBubble: View {
 
     private var isUser: Bool { message.role == .user }
 
+    /// Du in Gold, Claude in Cyan
+    private var roleColor: Color { isUser ? .hudGold : .hudCyan }
+
     private var bubble: some View {
-        HStack(alignment: .bottom, spacing: 6) {
+        let shape = RoundedRectangle(cornerRadius: HUDMetrics.radius, style: .continuous)
+        return HStack(alignment: .bottom, spacing: 6) {
             if isUser { Spacer(minLength: 60) }
             VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
                 HStack(spacing: 4) {
                     Text(isUser ? "Du" : "Claude")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(isUser ? Color.blue : Color.anthropicOrange)
+                        .font(.hudMono(10, weight: .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(roleColor)
                         .textCase(.uppercase)
                     if isUser && !message.delivered {
-                        Image(systemName: "clock").font(.system(size: 8)).foregroundStyle(.secondary)
+                        Image(systemName: "clock").font(.system(size: 8)).foregroundStyle(Color.hudMuted)
                             .accessibilityLabel("wird zugestellt")
                     }
                 }
                 Text(message.text)
                     .font(.system(size: 14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.hudInk)
                     .multilineTextAlignment(isUser ? .trailing : .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -72,23 +80,23 @@ struct MessageBubble: View {
                 if !message.toolCalls.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: "wrench.and.screwdriver").font(.system(size: 8))
-                        Text(message.toolCalls.prefix(2).joined(separator: ", ")).font(.system(size: 9))
+                        Text(message.toolCalls.prefix(2).joined(separator: ", ")).font(.hudMono(9))
                         if message.toolCalls.count > 2 {
-                            Text("+\(message.toolCalls.count - 2)").font(.system(size: 9)).foregroundStyle(.gray)
+                            Text("+\(message.toolCalls.count - 2)").font(.hudMono(9)).foregroundStyle(Color.hudMuted)
                         }
                     }
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(Color.hudCyan.opacity(0.75))
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(isUser ? Color.blue.opacity(0.25) : Color.white.opacity(0.1),
-                        in: UnevenRoundedRectangle(
-                            topLeadingRadius: 16,
-                            bottomLeadingRadius: isUser ? 16 : 4,
-                            bottomTrailingRadius: isUser ? 4 : 16,
-                            topTrailingRadius: 16,
-                            style: .continuous))
+            .background(roleColor.opacity(isUser ? 0.1 : 0.07), in: shape)
+            // Leuchtende Kante zur eigenen Seite: Claude links, du rechts
+            .overlay(alignment: isUser ? .trailing : .leading) {
+                Rectangle().fill(roleColor).frame(width: 2).shadow(color: roleColor, radius: 3)
+            }
+            .overlay(shape.strokeBorder(roleColor.opacity(isUser ? 0.35 : 0.25), lineWidth: HUDMetrics.hairline))
+            .clipShape(shape)
             if !isUser { Spacer(minLength: 60) }
         }
         .padding(.horizontal, 8)
@@ -108,11 +116,12 @@ struct AttachmentView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: 200, maxHeight: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: HUDMetrics.radius))
+                    .overlay(RoundedRectangle(cornerRadius: HUDMetrics.radius).strokeBorder(Color.hudLineStrong, lineWidth: HUDMetrics.hairline))
             } else {
                 Label(attachment.name, systemImage: attachment.isImage ? "photo" : "paperclip")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.8))
+                    .font(.hudMono(11))
+                    .foregroundStyle(Color.hudInk.opacity(0.85))
             }
         }
         .task(id: attachment.path) {

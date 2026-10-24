@@ -12,23 +12,26 @@ struct SettingsView: View {
     @State private var showRayBanInstructions = false
     @State private var showAddCustomMode = false
 
-    private let accent = Color.anthropicOrange
+    private let accent = Color.hudCyan
 
     var body: some View {
         NavigationStack {
             List {
-                connectionSection
-                directSection
-                memorySection
-                modesSection
-                cameraSection
-                rayBanSection
-                voiceSection
-                aboutSection
+                Group {
+                    connectionSection
+                    directSection
+                    memorySection
+                    modesSection
+                    cameraSection
+                    rayBanSection
+                    voiceSection
+                    aboutSection
+                }
+                .hudSection()
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Einstellungen")
-            .tint(accent)
+            .hudList()
             .sheet(isPresented: $showRayBanInstructions) { RayBanInstructionsView() }
             .sheet(isPresented: $showAddCustomMode) { AddCustomModeView(modeManager: modeManager) }
             .toolbar {
@@ -52,13 +55,18 @@ struct SettingsView: View {
     private var connectionSection: some View {
         Section {
             HStack(spacing: 14) {
+                let statusColor = viewModel.isConnected ? Color.hudOK : Color.hudBad
                 Image(systemName: viewModel.isConnected ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .font(.system(size: 22))
-                    .foregroundStyle(viewModel.isConnected ? .green : .red)
+                    .foregroundStyle(statusColor)
+                    .hudGlow(statusColor)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(viewModel.isConnected ? "Verbunden" : "Nicht verbunden").font(.headline)
+                    Text(viewModel.isConnected ? "Verbunden" : "Nicht verbunden")
+                        .font(.hudDisplay(15))
+                        .textCase(.uppercase)
+                        .foregroundStyle(Color.hudInk)
                     Text(connectionDetail)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(Color.hudMuted)
                 }
             }
             .padding(.vertical, 4)
@@ -107,13 +115,13 @@ struct SettingsView: View {
                         if isTesting {
                             ProgressView()
                         } else if let testResult {
-                            Text(testResult.text).font(.caption).foregroundStyle(testResult.ok ? .green : .red)
+                            Text(testResult.text).font(.caption).foregroundStyle(testResult.ok ? Color.hudOK : Color.hudBad)
                         }
                     }
                 }
             }
         } header: {
-            Text("Verbindung")
+            HUDLabel("Verbindung")
         } footer: {
             Text(connectionFooter)
         }
@@ -147,7 +155,7 @@ struct SettingsView: View {
             }
             if !viewModel.config.anthropicAPIKey.isEmpty && !viewModel.config.hasDirectKey {
                 Label("Das sieht nicht wie ein Anthropic-API-Key aus (beginnt mit sk-ant-)", systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(Color.hudWarn)
             }
             Picker("Modell", selection: $viewModel.config.directModel) {
                 ForEach(DirectClaudeClient.models) { model in
@@ -166,7 +174,7 @@ struct SettingsView: View {
                 Link(destination: url) { Label("API-Key bei Anthropic erstellen", systemImage: "key") }
             }
         } header: {
-            Text("Ohne PC (unterwegs)")
+            HUDLabel("Ohne PC (unterwegs)")
         } footer: {
             Text("Kostet pro Frage – mit Claude Opus 5.5 meist 1–3 Cent, Sonnet etwa die Hälfte, Haiku ein Bruchteil; jede Websuche ca. 1 Cent. Dein Claude-Abo gilt hier nicht – über dein Abo geht es unterwegs nur mit Tailscale (siehe oben). Werkzeuge vom PC (E-Mail, Dateien) gibt es ohne PC nicht – Timer, Anrufe, Navigation und Fotos schon. Der Key liegt nur im Schlüsselbund dieses iPhones.")
         }
@@ -186,7 +194,7 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Gedächtnis")
+            HUDLabel("Gedächtnis")
         } footer: {
             Text("„Hey Claude, merk dir …“ – Claude behält es, mit und ohne PC. Aus deinen Claude-Chats kommt dein Wissen per Einfügen oder direkt über die Claude-Desktop-App am PC („Übertrag, was du über mich weißt, an die Brille“).")
         }
@@ -218,7 +226,7 @@ struct SettingsView: View {
                 Label("Eigenen Modus anlegen", systemImage: "plus.circle.fill")
             }
         } header: {
-            Text("Experten-Modi")
+            HUDLabel("Experten-Modi")
         } footer: {
             Text("Modi geben Claude Fachwissen und Antwortstil vor. Aktiver Modus: \(modeManager.activeMode.name). Eigene Modi zum Löschen nach links wischen.")
         }
@@ -244,7 +252,7 @@ struct SettingsView: View {
                 Slider(value: $viewModel.config.videoJPEGQuality, in: 0.3...1.0, step: 0.05)
             }
         } header: {
-            Text("Kamera")
+            HUDLabel("Kamera")
         } footer: {
             Text("Mit jeder Frage geht das aktuelle Bild an Claude. Höhere Qualität hilft beim Lesen von Text, braucht aber mehr Daten.")
         }
@@ -255,7 +263,7 @@ struct SettingsView: View {
     private var rayBanSection: some View {
         Section {
             HStack(spacing: 14) {
-                Image(systemName: "eyeglasses").font(.system(size: 22)).foregroundStyle(accent)
+                Image(systemName: "eyeglasses").font(.system(size: 22)).foregroundStyle(accent).hudGlow(accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(rayBanManager.deviceModel ?? rayBanManager.glassesName).font(.body)
                     if rayBanManager.deviceModel != nil {
@@ -273,7 +281,7 @@ struct SettingsView: View {
                 LabeledContent("Bügel", value: open ? "offen" : "geschlossen")
             }
             if let hint = rayBanManager.updateHint {
-                Label(hint, systemImage: "arrow.down.circle").font(.caption).foregroundStyle(.orange)
+                Label(hint, systemImage: "arrow.down.circle").font(.caption).foregroundStyle(Color.hudWarn)
             }
             if rayBanManager.isRegistered {
                 Button("Brille abmelden", role: .destructive) {
@@ -292,7 +300,7 @@ struct SettingsView: View {
                 Label("Anleitung Ray-Ban Meta Gen 2", systemImage: "book.closed.fill")
             }
         } header: {
-            Text("Ray-Ban Meta")
+            HUDLabel("Ray-Ban Meta")
         } footer: {
             Text("Einmalig registrieren: Die Meta-AI-App öffnet sich zur Bestätigung. Danach hat die Brille immer Vorrang – Kamera, Mikrofon und Lautsprecher der Ray-Ban Meta zuerst, das iPhone nur als Ersatz. Die Kamera der Brille geht nur für ein Foto an, wenn du etwas fragst, das ein Bild braucht.")
         }
@@ -338,7 +346,7 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Sprache & Stimme")
+            HUDLabel("Sprache & Stimme")
         } footer: {
             Text((viewModel.config.wakeWordEnabled
                   ? "Mit Weckwort hört die App freihändig zu – wie bei Meta AI auch mit gesperrtem iPhone in der Tasche (oben rechts erscheint dann der orange Mikrofon-Punkt). Sag „Hey Claude“ oder „Claudi“ und dann deine Frage. Die Erkennung läuft nur auf dem iPhone. "
@@ -358,7 +366,7 @@ struct SettingsView: View {
                 Link(destination: url) { Label("Projekt auf GitHub", systemImage: "chevron.left.forwardslash.chevron.right") }
             }
         } header: {
-            Text("Über RayBan Claude")
+            HUDLabel("Über RayBan Claude")
         } footer: {
             Text("Open Source (MIT), Fork von visionclaude. Inoffizielles Projekt – nicht verbunden mit Meta, Ray-Ban/EssilorLuxottica oder Anthropic.")
         }
@@ -407,49 +415,58 @@ struct AddCustomModeView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Name") {
-                    TextField("z. B. Koch, Gärtner, Nachhilfe", text: $name)
-                }
-                Section("Symbol") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 8) {
-                        ForEach(iconOptions, id: \.self) { icon in
-                            Button { selectedIcon = icon } label: {
-                                Image(systemName: icon)
-                                    .frame(width: 34, height: 34)
-                                    .foregroundStyle(selectedIcon == icon ? .white : .primary)
-                                    .background(RoundedRectangle(cornerRadius: 8)
-                                        .fill(selectedIcon == icon ? (Color(hex: selectedColor) ?? .orange) : Color(.systemGray5)))
+                Group {
+                    Section(hud: "Name") {
+                        TextField("z. B. Koch, Gärtner, Nachhilfe", text: $name)
+                    }
+                    Section(hud: "Symbol") {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 8) {
+                            ForEach(iconOptions, id: \.self) { icon in
+                                let isSelected = selectedIcon == icon
+                                Button { selectedIcon = icon } label: {
+                                    Image(systemName: icon)
+                                        .frame(width: 34, height: 34)
+                                        .foregroundStyle(isSelected ? Color.white : Color.hudInk)
+                                        .background(RoundedRectangle(cornerRadius: HUDMetrics.radius)
+                                            .fill(isSelected ? (Color(hex: selectedColor) ?? .orange) : Color.hudSurface))
+                                        .overlay(RoundedRectangle(cornerRadius: HUDMetrics.radius)
+                                            .strokeBorder(isSelected ? Color.clear : Color.hudLine, lineWidth: HUDMetrics.hairline))
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
-                }
-                Section("Farbe") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 8) {
-                        ForEach(colorOptions, id: \.self) { hex in
-                            Button { selectedColor = hex } label: {
-                                Circle()
-                                    .fill(Color(hex: hex) ?? .orange)
-                                    .frame(width: 34, height: 34)
-                                    .overlay(Circle().strokeBorder(.white, lineWidth: selectedColor == hex ? 3 : 0))
+                    Section(hud: "Farbe") {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 8) {
+                            ForEach(colorOptions, id: \.self) { hex in
+                                Button { selectedColor = hex } label: {
+                                    Circle()
+                                        .fill(Color(hex: hex) ?? .orange)
+                                        .frame(width: 34, height: 34)
+                                        .overlay(Circle().strokeBorder(.white, lineWidth: selectedColor == hex ? 3 : 0))
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
+                    Section {
+                        TextEditor(text: $systemPrompt)
+                            .frame(minHeight: 110)
+                            .scrollContentBackground(.hidden)
+                    } header: {
+                        HUDLabel("Anweisung an Claude")
+                    } footer: {
+                        Text("Beschreibe Fachgebiet und Antwortstil, z. B. „Du bist Koch. Erkenne Zutaten und schlage schnelle Gerichte vor.“")
+                    }
+                    Section {
+                        TextField("Was ist das?, Wie koche ich das?", text: $quickActionsText)
+                    } header: {
+                        HUDLabel("Schnellbefehle (mit Komma getrennt)")
+                    }
                 }
-                Section {
-                    TextEditor(text: $systemPrompt).frame(minHeight: 110)
-                } header: {
-                    Text("Anweisung an Claude")
-                } footer: {
-                    Text("Beschreibe Fachgebiet und Antwortstil, z. B. „Du bist Koch. Erkenne Zutaten und schlage schnelle Gerichte vor.“")
-                }
-                Section {
-                    TextField("Was ist das?, Wie koche ich das?", text: $quickActionsText)
-                } header: {
-                    Text("Schnellbefehle (mit Komma getrennt)")
-                }
+                .hudSection()
             }
+            .hudList()
             .navigationTitle("Neuer Modus")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -488,35 +505,39 @@ struct RayBanInstructionsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Voraussetzungen") {
-                    Text("Ray-Ban Meta (Gen 2 oder Gen 1), Oakley Meta oder Meta Ray-Ban Display")
-                    Text("Meta-AI-App (mind. Version 290) – Brille dort gekoppelt")
-                    Text("Aktuelle Brillen-Firmware (mind. V128) – die Meta-AI-App fragt nach Updates")
-                    linkRow("Meta-AI-App laden", "https://apps.apple.com/app/meta-ai/id1662457680")
+                Group {
+                    Section(hud: "Voraussetzungen") {
+                        Text("Ray-Ban Meta (Gen 2 oder Gen 1), Oakley Meta oder Meta Ray-Ban Display")
+                        Text("Meta-AI-App (mind. Version 290) – Brille dort gekoppelt")
+                        Text("Aktuelle Brillen-Firmware (mind. V128) – die Meta-AI-App fragt nach Updates")
+                        linkRow("Meta-AI-App laden", "https://apps.apple.com/app/meta-ai/id1662457680")
+                    }
+                    Section(hud: "1 · Entwicklermodus einschalten") {
+                        step(1, "Meta-AI-App → Einstellungen → deine Brille → Entwicklermodus → an")
+                        step(2, "Brille neu starten: Taste 15 Sekunden halten, dann kurz drücken")
+                        Text("Der Entwicklermodus kann sich nach Firmware-Updates wieder abschalten – dann erneut aktivieren.")
+                            .font(.caption).foregroundStyle(Color.hudMuted)
+                    }
+                    Section(hud: "2 · In RayBan Claude verbinden") {
+                        step(3, "Einstellungen → „Brille über Meta AI verbinden“")
+                        step(4, "In der Meta-AI-App „Erlauben“ tippen – du landest wieder hier")
+                        step(5, "Unten rechts auf „Brille“ umschalten und die Kamera-Freigabe bestätigen")
+                    }
+                    Section(hud: "Tipps für Gen 2") {
+                        Text("Bügel aufklappen – bei geschlossenen Bügeln stoppt der Stream (er startet beim Öffnen automatisch neu).")
+                        Text("Ein Tipp auf das Touchpad pausiert den Stream, ein weiterer setzt ihn fort.")
+                        Text("Claude kann selbst ein scharfes Foto mit der Brille aufnehmen, z. B. zum Lesen von Text.")
+                        Text("Unter 10 % Akku verweigert die Brille den Kamerastream.")
+                    }
+                    Section(hud: "Probleme?") {
+                        Text("Keine Brille gefunden: eingeschaltet, Bügel offen, in der Meta-AI-App verbunden?")
+                        Text("„Gerät nicht verfügbar“: Brille aus- und einschalten, dann erneut verbinden.")
+                        linkRow("Meta Wearables Doku", "https://wearables.developer.meta.com/docs/develop/")
+                    }
                 }
-                Section("1 · Entwicklermodus einschalten") {
-                    step(1, "Meta-AI-App → Einstellungen → deine Brille → Entwicklermodus → an")
-                    step(2, "Brille neu starten: Taste 15 Sekunden halten, dann kurz drücken")
-                    Text("Der Entwicklermodus kann sich nach Firmware-Updates wieder abschalten – dann erneut aktivieren.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Section("2 · In RayBan Claude verbinden") {
-                    step(3, "Einstellungen → „Brille über Meta AI verbinden“")
-                    step(4, "In der Meta-AI-App „Erlauben“ tippen – du landest wieder hier")
-                    step(5, "Unten rechts auf „Brille“ umschalten und die Kamera-Freigabe bestätigen")
-                }
-                Section("Tipps für Gen 2") {
-                    Text("Bügel aufklappen – bei geschlossenen Bügeln stoppt der Stream (er startet beim Öffnen automatisch neu).")
-                    Text("Ein Tipp auf das Touchpad pausiert den Stream, ein weiterer setzt ihn fort.")
-                    Text("Claude kann selbst ein scharfes Foto mit der Brille aufnehmen, z. B. zum Lesen von Text.")
-                    Text("Unter 10 % Akku verweigert die Brille den Kamerastream.")
-                }
-                Section("Probleme?") {
-                    Text("Keine Brille gefunden: eingeschaltet, Bügel offen, in der Meta-AI-App verbunden?")
-                    Text("„Gerät nicht verfügbar“: Brille aus- und einschalten, dann erneut verbinden.")
-                    linkRow("Meta Wearables Doku", "https://wearables.developer.meta.com/docs/develop/")
-                }
+                .hudSection()
             }
+            .hudList()
             .navigationTitle("Ray-Ban Meta einrichten")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -527,11 +548,7 @@ struct RayBanInstructionsView: View {
 
     private func step(_ number: Int, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text("\(number)")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.anthropicOrange))
+            HUDStepBadge(number: number)
             Text(text)
         }
     }
