@@ -6,11 +6,11 @@
 ; „RayBan Claude“ auf den Desktop und ins Startmenü.
 ;
 ; Gebaut wird in GitHub Actions (.github/workflows/windows-installer.yml):
-;   ISCC.exe /DAppVersion=2.0.0 installer\RayBanClaude.iss
+;   ISCC.exe /DAppVersion=2.1.0 installer\RayBanClaude.iss
 
 #define AppName "RayBan Claude"
 #ifndef AppVersion
-  #define AppVersion "2.0.0"
+  #define AppVersion "2.1.0"
 #endif
 #define RepoUrl "https://github.com/MoinMornhart/RayBanClaude"
 

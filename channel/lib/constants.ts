@@ -2,7 +2,7 @@
  * Zentrale Konstanten des Channel-Servers (Grenzwerte, Zeiten, HTTP-Status).
  */
 
-export const VERSION = '2.0.0'
+export const VERSION = '2.1.0'
 export const SERVER_NAME = 'raybanclaude'
 
 // ── Einheiten ──────────────────────────────────────────────────────────────
