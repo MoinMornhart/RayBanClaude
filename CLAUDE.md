@@ -1,3 +1,5 @@
+Lies zuerst den Projektstand: @STAND.md
+
 # RayBan Claude – Hinweise für Claude Code
 
 - Sprache: Antworten, Code-Kommentare, UI-Texte und Doku auf **Deutsch**.
