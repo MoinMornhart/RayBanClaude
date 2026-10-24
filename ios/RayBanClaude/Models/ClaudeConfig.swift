@@ -50,6 +50,8 @@ struct ClaudeConfig: Codable, Equatable {
     var listenWhenLocked: Bool = true
     /// Display nicht automatisch sperren, solange die App offen ist (braucht mehr Akku)
     var keepScreenOn: Bool = false
+    /// Gesten der Brille: Doppeltipp = zuhören, Capture-Taste = „Was siehst du?“ (hält die Sitzung offen)
+    var glassesGestures: Bool = true
 
     // Geheimnisse liegen im Schlüsselbund, nicht in den UserDefaults
     var channelToken: String = ""
@@ -77,6 +79,7 @@ struct ClaudeConfig: Codable, Equatable {
         case gatewayHost, remoteHost, gatewayPort, connectionMode, videoFrameInterval, videoJPEGQuality
         case speechPauseThreshold, elevenLabsVoiceId, speechLanguage, autoListen, wakeWordEnabled
         case directModel, directFallback, webSearchEnabled, memoryEnabled, listenWhenLocked, keepScreenOn
+        case glassesGestures
     }
 
     var isConfigured: Bool { baseURL != nil && !channelToken.isEmpty }
@@ -167,5 +170,6 @@ extension ClaudeConfig {
         memoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .memoryEnabled) ?? defaults.memoryEnabled
         listenWhenLocked = try c.decodeIfPresent(Bool.self, forKey: .listenWhenLocked) ?? defaults.listenWhenLocked
         keepScreenOn = try c.decodeIfPresent(Bool.self, forKey: .keepScreenOn) ?? defaults.keepScreenOn
+        glassesGestures = try c.decodeIfPresent(Bool.self, forKey: .glassesGestures) ?? defaults.glassesGestures
     }
 }

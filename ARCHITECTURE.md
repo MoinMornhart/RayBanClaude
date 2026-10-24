@@ -47,11 +47,41 @@ Unterwegs läuft damit weiterhin alles über Claude Code und das Claude-Abo des 
 
 - `VisionIntent` entscheidet anhand der Frage, ob ein Bild nötig ist („Was ist das?“, „Lies vor“, „Mach ein Foto“).
   Sonst geht die Frage ohne Bild an Claude; braucht Claude doch eins, ruft es `request_photo`/`take_photo`.
-- `RayBanManager` ist nur „bereit“: Erst für ein Foto startet er Sitzung → Kamera → Stream (`hvc1`, läuft laut Meta
-  auch im Hintergrund) → `capturePhoto`, nach 15 s ohne weiteres Foto wird alles wieder freigegeben
-  (mind. 2 s zwischen Sitzungen). Schon während der Nutzer spricht, weckt eine erkannte Bild-Frage die Kamera.
+- `RayBanManager` ist nur „bereit“: Die Geräte-Sitzung bleibt für die Gesten offen, erst für ein Foto kommt die
+  Kamera dazu: `addCamera` → Stream (`hvc1`, läuft laut Meta auch im Hintergrund) → `capturePhoto`; nach 15 s ohne
+  weiteres Foto `camera.stop()`. Eine gestoppte Kamera ist ungültig – jedes Foto bekommt ein frisches `addCamera`.
+  Startet die Kamera auf der laufenden Sitzung nicht neu (Meta-Issue #260), baut die App einmal die ganze Sitzung neu
+  auf (mind. 2 s zwischen Sitzungen). Gesten aus → wie früher: Sitzung nur fürs Foto, danach wird alles freigegeben.
+  Schon während der Nutzer spricht, weckt eine erkannte Bild-Frage die Kamera.
 - Brille zuerst: `AudioSessionManager` wählt das Bluetooth-Mikrofon der Ray-Ban Meta vor jedem anderen Headset;
   kann die Brille kein Foto machen, springt bei offener App die iPhone-Kamera ein.
+
+## Gesten der Brille (experimentell, auf echter Brille noch nicht getestet)
+
+Über Metas Modul `MWDATInputs` (DAT 1.0, nur Entwicklermodus/Beta-Channel, keine Laufzeit-Freigabe):
+
+| Geste | Ereignis | App |
+|---|---|---|
+| Doppeltipp aufs Touchpad | `.select` | `SessionViewModel.startListening` – sofort zuhören, 7 s Zeit für die Frage |
+| Capture-Taste kurz | `.capture(.shortPress)` | Kamera wecken, `sendText("Was siehst du?")` → `VisionIntent` → Foto |
+| Aktionstaste (Oakley Vanguard) | `.button(.action)` | wie Doppeltipp |
+| Zurück | `.back` | Antwort/Zuhören abbrechen (liefern echte Brillen laut Meta noch nicht) |
+| Wischen | `.nav` | ohne Aktion (nur geloggt) |
+| Einmal tippen / tippen und halten | – | bleibt beim System: Sitzung pausieren bzw. beenden |
+
+- `addInputs(configuration:)` nur an eine **gestartete** Sitzung; Quellen `captouch`, `captureButton`, `actionButton`
+  (nur die Capture-Taste allein lieferte im Meta-Beispiel BirdSpotter nichts), `consumeBack: true`.
+- `sources` ist kein Filter: Die Brille leitet diese Flächen an die App um – Wischen kommt dann als `.nav` statt als
+  Lautstärke.
+- Angehängt wird erst, wenn `session.device.linkState == .connected` ist, plus 0,75 s – zu früh scheitern Inputs
+  einmal still (`deviceDisconnected`).
+- Fällt die Fähigkeit nach `.active` auf `.inactive` zurück (z. B. weil ein Foto über Bluetooth kommt), läuft der
+  Ereignisstrom aus oder meldet sie einen Fehler: `removeInputs()` → `addInputs()`, höchstens 5-mal in Folge.
+  `permissionDenied`/`capabilityUnavailable` → Hinweis in den Einstellungen, kein neuer Versuch.
+- Sitzung von außen beendet (Tippen und halten, Brille aus) → nach 5 s neu aufbauen, höchstens 3-mal in Folge;
+  Bügel zu → warten, bis sie wieder aufgeklappt werden. Im Hintergrund ohne Hosentaschen-Modus wird alles
+  freigegeben, zurück im Vordergrund kommt die Sitzung wieder.
+- Abschaltbar unter *Einstellungen → Ray-Ban Meta → Gesten* (`ClaudeConfig.glassesGestures`).
 
 ## Hosentaschen-Modus
 
@@ -91,13 +121,13 @@ freigegeben.
 | Hilfsmodule | `channel/lib/*.ts` | Konstanten, Regex mit Beispielen, Validierung, LAN-/Tailscale-Erkennung, Handy-Aktionen, Gedächtnis |
 | Dashboard | `channel/dashboard.*` | QR-Kopplung, Aktivität, Stimme; nur `localhost`, strikte CSP |
 | Gateway | `server/src/*.ts` | Alternative ohne Claude Code: Claude-API + MCP-Client + Skills |
-| `RayBanManager` | `ios/…/Services/RayBanManager.swift` | DAT 1.0.1: Registrierung, Session, Kamera, Stream, Foto, Gerätezustand |
+| `RayBanManager` | `ios/…/Services/RayBanManager.swift` | DAT 1.0.1: Registrierung, Dauersitzung, Gesten (Inputs), Kamera pro Foto, Gerätezustand |
 | `CameraManager` | `ios/…/Services/CameraManager.swift` | iPhone-Kamera, JPEG-Drosselung, QR-/Barcodes |
 | `SpeechManager` | `ios/…/Services/SpeechManager.swift` | Spracherkennung (on-device), Sprachausgabe |
 | `ClaudeBridge` | `ios/…/Services/ClaudeBridge.swift` | WebSocket/REST, WLAN → Tailscale, Reconnect mit Backoff, Token-Header |
 | `DirectClaudeClient` | `ios/…/Services/DirectClaudeClient.swift` | Ohne PC: Claude-API direkt, Werkzeug-Schleife, Prompt-Caching |
 | `MemoryStore` | `ios/…/Services/MemoryStore.swift` | Gedächtnis: speichern, abgleichen, Übernahme aus der Claude-App |
-| `SessionViewModel` | `ios/…/ViewModels/SessionViewModel.swift` | Ablaufsteuerung, Timeouts, Kopplung, Freigaben |
+| `SessionViewModel` | `ios/…/ViewModels/SessionViewModel.swift` | Ablaufsteuerung, Timeouts, Kopplung, Freigaben, Gesten der Brille |
 
 ## Zugriffsstufen im Channel-Server
 
@@ -113,5 +143,6 @@ freigegeben.
 - Stream mit 720p bei 15 fps (sauberere Einzelbilder über Bluetooth als 30 fps).
 - Audio-Session wird **einmal** auf `.playAndRecord` + HFP gestellt und vor `stream.start()`
   ca. 2 s „gesetzt“ – häufiges Umschalten führt laut Meta bei Gen 2 zu „Device unavailable“.
-- Geschlossene Bügel beenden die Session; beim Aufklappen baut die App sie neu auf.
+- Geschlossene Bügel beenden die Session; beim Aufklappen baut die App sie neu auf (Gerätezustand `hingeState`).
+- Ein Tipp aufs Touchpad pausiert die Session (`DeviceSessionState.paused`), ein weiterer setzt sie fort.
 - Fotos per `stream.capturePhoto(format: .jpeg)` – Video pausiert kurz.

@@ -283,6 +283,13 @@ struct SettingsView: View {
             if let hint = rayBanManager.updateHint {
                 Label(hint, systemImage: "arrow.down.circle").font(.caption).foregroundStyle(Color.hudWarn)
             }
+            Toggle("Gesten (Doppeltipp, Capture-Taste)", isOn: $viewModel.config.glassesGestures)
+            if viewModel.config.glassesGestures, rayBanManager.isRegistered {
+                LabeledContent("Gesten", value: rayBanManager.gesturesActive ? "aktiv" : "nicht aktiv")
+                if let hint = rayBanManager.gestureHint {
+                    Label(hint, systemImage: "hand.tap").font(.caption).foregroundStyle(Color.hudWarn)
+                }
+            }
             if rayBanManager.isRegistered {
                 Button("Brille abmelden", role: .destructive) {
                     Task { await rayBanManager.unregister() }
@@ -302,7 +309,7 @@ struct SettingsView: View {
         } header: {
             HUDLabel("Ray-Ban Meta")
         } footer: {
-            Text("Einmalig registrieren: Die Meta-AI-App öffnet sich zur Bestätigung. Danach hat die Brille immer Vorrang – Kamera, Mikrofon und Lautsprecher der Ray-Ban Meta zuerst, das iPhone nur als Ersatz. Die Kamera der Brille geht nur für ein Foto an, wenn du etwas fragst, das ein Bild braucht.")
+            Text("Einmalig registrieren: Die Meta-AI-App öffnet sich zur Bestätigung. Danach hat die Brille immer Vorrang – Kamera, Mikrofon und Lautsprecher der Ray-Ban Meta zuerst, das iPhone nur als Ersatz. Die Kamera der Brille geht nur für ein Foto an, wenn du etwas fragst, das ein Bild braucht. Gesten wie bei Meta AI: Doppeltipp aufs Touchpad – Claude hört sofort zu; Capture-Taste kurz drücken – Claude beschreibt, was du siehst (experimentell, auf echter Brille noch nicht getestet).")
         }
     }
 
@@ -525,7 +532,9 @@ struct RayBanInstructionsView: View {
                     }
                     Section(hud: "Tipps für Gen 2") {
                         Text("Bügel aufklappen – bei geschlossenen Bügeln stoppt der Stream (er startet beim Öffnen automatisch neu).")
-                        Text("Ein Tipp auf das Touchpad pausiert den Stream, ein weiterer setzt ihn fort.")
+                        Text("Ein Tipp auf das Touchpad pausiert die Verbindung, ein weiterer setzt sie fort.")
+                        Text("Mit eingeschalteten Gesten (Einstellungen → Ray-Ban Meta): Doppeltipp auf das Touchpad – Claude hört sofort zu, ohne „Hey Claude“. Capture-Taste kurz drücken – Foto, Claude sagt dir, was du siehst.")
+                        Text("Solange die Gesten an sind, beendet Tippen und Halten die Verbindung (die App verbindet nach ein paar Sekunden neu), und Wischen am Bügel ändert die Lautstärke evtl. nicht – dann am iPhone regeln oder die Gesten ausschalten.")
                         Text("Claude kann selbst ein scharfes Foto mit der Brille aufnehmen, z. B. zum Lesen von Text.")
                         Text("Unter 10 % Akku verweigert die Brille den Kamerastream.")
                     }

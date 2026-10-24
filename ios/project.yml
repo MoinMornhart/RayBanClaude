@@ -27,6 +27,9 @@ targets:
         product: MWDATCore
       - package: meta-wearables-dat-ios
         product: MWDATCamera
+      # Experimentell (nur Entwicklermodus/Beta-Channel): Touchpad- und Tasten-Gesten der Brille
+      - package: meta-wearables-dat-ios
+        product: MWDATInputs
     settings:
       base:
         INFOPLIST_FILE: RayBanClaude/Info.plist
