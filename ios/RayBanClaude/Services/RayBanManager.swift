@@ -55,8 +55,8 @@ final class RayBanManager: NSObject, ObservableObject, FrameSource {
     @Published private(set) var gestureHint: String?
     /// Erkannte Geste – die Ablaufsteuerung entscheidet, was passiert
     var onGesture: ((GlassesGesture) -> Void)?
-    /// Gesten an: Sitzung bleibt offen. Aus: Sitzung nur fürs Foto (wie vor den Gesten).
-    var gesturesEnabled = true {
+    /// Gesten an: Sitzung bleibt offen. Aus (Standard): Sitzung nur fürs Foto (wie vor den Gesten).
+    var gesturesEnabled = false {
         didSet {
             guard gesturesEnabled != oldValue else { return }
             gesturesEnabledChanged()

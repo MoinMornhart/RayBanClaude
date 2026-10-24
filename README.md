@@ -64,7 +64,7 @@ Brille geht **nur an, wenn deine Frage ein Bild braucht** – sonst wird nichts 
 Nach einer Antwort hört die App ein paar Sekunden weiter zu – Rückfragen gehen also ohne Weckwort.
 
 Oder ganz ohne Worte wie bei Meta AI: **Doppeltipp aufs Touchpad** – Claude hört sofort zu, **Capture-Taste kurz
-drücken** – Claude sagt dir, was du siehst *(experimentell, siehe [Wie Meta AI](#-wie-meta-ai--nur-mit-claude))*.
+drücken** – Claude sagt dir, was du siehst *(experimentell und standardmäßig aus, siehe [Wie Meta AI](#-wie-meta-ai--nur-mit-claude))*.
 
 ## ✨ Was RayBan Claude kann
 
@@ -73,7 +73,7 @@ drücken** – Claude sagt dir, was du siehst *(experimentell, siehe [Wie Meta A
 | 👓 **Brille zuerst** | Kamera, Mikrofon und Lautsprecher der Ray-Ban Meta haben Vorrang – das iPhone springt nur ein |
 | 📷 **Kamera nur auf Zuruf** | Wie Meta AI: Foto nur, wenn die Frage eins braucht („Was ist das?“) – schont Akku und Privatsphäre |
 | 🗣 **Freihändig** | Weckwort, auch bei gesperrtem iPhone in der Tasche; Spracherkennung auf dem iPhone, Antwort per Stimme |
-| 👆 **Gesten der Brille** | Doppeltipp = zuhören, Capture-Taste = „Was siehst du?“ – wie bei Meta AI (experimentell) |
+| 👆 **Gesten der Brille** | Doppeltipp = zuhören, Capture-Taste = „Was siehst du?“ – wie bei Meta AI (experimentell, zum Einschalten) |
 | 📱 **Handy-Aktionen** | Timer, Wecker, Erinnerungen, Anrufe, Nachrichten, Navigation, Fotos, Standort – Anrufe & Co. immer mit Bestätigung |
 | 🧰 **Alle deine Tools** | Mit PC nutzt Claude deine komplette Claude-Code-Sitzung inkl. MCP-Servern |
 | 🌍 **Unterwegs übers Abo** | Mit Tailscale (kostenlos) erreicht die App deinen PC auch über mobile Daten |
@@ -178,7 +178,7 @@ die Claude-App, deren Antwort du einfügst.
 | Erinnerungen, Timer, „Merk dir, wo ich geparkt habe“ | Erinnerungen-App, Timer, Wecker, Standort im Gedächtnis | ✅ |
 | Foto per Sprache | „Mach ein Foto“ → Mediathek | ✅ |
 | Anrufen, Nachrichten | Mit einem Tipp auf dem iPhone (Apple erlaubt Apps kein stilles Senden/Anrufen) | 🟡 |
-| Einmal tippen / tippen und halten | Bleibt beim System: pausiert bzw. beendet die Verbindung zur App (sie verbindet nach ein paar Sekunden neu) | 🟡 |
+| Einmal tippen / tippen und halten | Bleibt beim System – mit Gesten pausiert bzw. beendet es die Verbindung zur App (sie verbindet nach ein paar Sekunden neu) | 🟡 |
 | Live-Übersetzung, Musik steuern, Mitteilungen vorlesen | Noch nicht / für fremde Apps nicht möglich (Mitteilungen) | ❌ |
 | Wissen | **Claude** mit deinen Werkzeugen, deinem Gedächtnis und deinen Claude-Chats | ⭐ |
 
@@ -186,8 +186,8 @@ die Claude-App, deren Antwort du einfügst.
 (seit DAT 1.0, nur im Entwicklermodus bzw. Beta-Channel). Dafür bleibt die Verbindung zur Brille offen, die Kamera
 geht aber weiterhin nur für ein Foto an. Ob die Capture-Taste ankommt, während die Kamera gerade läuft, ist bei Meta
 noch offen; ebenso, ob die Brille dabei zusätzlich ein eigenes Foto macht. Solange die Gesten an sind, kann Wischen am
-Bügel die Lautstärke evtl. nicht ändern. Abschalten: *Einstellungen → Ray-Ban Meta → Gesten* – dann verhält sich die
-App wie vorher (Verbindung nur fürs Foto).
+Bügel die Lautstärke evtl. nicht ändern. Deshalb sind sie **standardmäßig aus**. Einschalten: *Einstellungen →
+Ray-Ban Meta → Gesten (experimentell)*. Ausgeschaltet verbindet sich die App nur fürs Foto mit der Brille.
 
 ## 💶 Was kostet das?
 

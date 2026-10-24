@@ -47,11 +47,11 @@ Unterwegs läuft damit weiterhin alles über Claude Code und das Claude-Abo des 
 
 - `VisionIntent` entscheidet anhand der Frage, ob ein Bild nötig ist („Was ist das?“, „Lies vor“, „Mach ein Foto“).
   Sonst geht die Frage ohne Bild an Claude; braucht Claude doch eins, ruft es `request_photo`/`take_photo`.
-- `RayBanManager` ist nur „bereit“: Die Geräte-Sitzung bleibt für die Gesten offen, erst für ein Foto kommt die
+- `RayBanManager` ist nur „bereit“: Mit Gesten bleibt die Geräte-Sitzung offen, erst für ein Foto kommt die
   Kamera dazu: `addCamera` → Stream (`hvc1`, läuft laut Meta auch im Hintergrund) → `capturePhoto`; nach 15 s ohne
   weiteres Foto `camera.stop()`. Eine gestoppte Kamera ist ungültig – jedes Foto bekommt ein frisches `addCamera`.
   Startet die Kamera auf der laufenden Sitzung nicht neu (Meta-Issue #260), baut die App einmal die ganze Sitzung neu
-  auf (mind. 2 s zwischen Sitzungen). Gesten aus → wie früher: Sitzung nur fürs Foto, danach wird alles freigegeben.
+  auf (mind. 2 s zwischen Sitzungen). Gesten aus (Standard) → Sitzung nur fürs Foto, danach wird alles freigegeben.
   Schon während der Nutzer spricht, weckt eine erkannte Bild-Frage die Kamera.
 - Brille zuerst: `AudioSessionManager` wählt das Bluetooth-Mikrofon der Ray-Ban Meta vor jedem anderen Headset;
   kann die Brille kein Foto machen, springt bei offener App die iPhone-Kamera ein.
@@ -81,7 +81,8 @@ Unterwegs läuft damit weiterhin alles über Claude Code und das Claude-Abo des 
 - Sitzung von außen beendet (Tippen und halten, Brille aus) → nach 5 s neu aufbauen, höchstens 3-mal in Folge;
   Bügel zu → warten, bis sie wieder aufgeklappt werden. Im Hintergrund ohne Hosentaschen-Modus wird alles
   freigegeben, zurück im Vordergrund kommt die Sitzung wieder.
-- Abschaltbar unter *Einstellungen → Ray-Ban Meta → Gesten* (`ClaudeConfig.glassesGestures`).
+- Standardmäßig aus, bis sie auf echter Brille getestet sind; einschalten unter *Einstellungen → Ray-Ban Meta →
+  Gesten (experimentell)* (`ClaudeConfig.glassesGestures`).
 
 ## Hosentaschen-Modus
 

@@ -283,7 +283,7 @@ struct SettingsView: View {
             if let hint = rayBanManager.updateHint {
                 Label(hint, systemImage: "arrow.down.circle").font(.caption).foregroundStyle(Color.hudWarn)
             }
-            Toggle("Gesten (Doppeltipp, Capture-Taste)", isOn: $viewModel.config.glassesGestures)
+            Toggle("Gesten (experimentell)", isOn: $viewModel.config.glassesGestures)
             if viewModel.config.glassesGestures, rayBanManager.isRegistered {
                 LabeledContent("Gesten", value: rayBanManager.gesturesActive ? "aktiv" : "nicht aktiv")
                 if let hint = rayBanManager.gestureHint {
@@ -309,7 +309,7 @@ struct SettingsView: View {
         } header: {
             HUDLabel("Ray-Ban Meta")
         } footer: {
-            Text("Einmalig registrieren: Die Meta-AI-App öffnet sich zur Bestätigung. Danach hat die Brille immer Vorrang – Kamera, Mikrofon und Lautsprecher der Ray-Ban Meta zuerst, das iPhone nur als Ersatz. Die Kamera der Brille geht nur für ein Foto an, wenn du etwas fragst, das ein Bild braucht. Gesten wie bei Meta AI: Doppeltipp aufs Touchpad – Claude hört sofort zu; Capture-Taste kurz drücken – Claude beschreibt, was du siehst (experimentell, auf echter Brille noch nicht getestet).")
+            Text("Einmalig registrieren: Die Meta-AI-App öffnet sich zur Bestätigung. Danach hat die Brille immer Vorrang – Kamera, Mikrofon und Lautsprecher der Ray-Ban Meta zuerst, das iPhone nur als Ersatz. Die Kamera der Brille geht nur für ein Foto an, wenn du etwas fragst, das ein Bild braucht. Gesten (experimentell, standardmäßig aus, auf echter Brille noch nicht getestet): Doppeltipp aufs Touchpad – Claude hört sofort zu; Capture-Taste kurz drücken – Claude beschreibt, was du siehst. Dafür bleibt die Verbindung zur Brille offen.")
         }
     }
 

@@ -50,8 +50,9 @@ struct ClaudeConfig: Codable, Equatable {
     var listenWhenLocked: Bool = true
     /// Display nicht automatisch sperren, solange die App offen ist (braucht mehr Akku)
     var keepScreenOn: Bool = false
-    /// Gesten der Brille: Doppeltipp = zuhören, Capture-Taste = „Was siehst du?“ (hält die Sitzung offen)
-    var glassesGestures: Bool = true
+    /// Gesten der Brille: Doppeltipp = zuhören, Capture-Taste = „Was siehst du?“ (hält die Sitzung offen).
+    /// Standardmäßig aus – experimentell, bis sie auf echter Brille getestet sind.
+    var glassesGestures: Bool = false
 
     // Geheimnisse liegen im Schlüsselbund, nicht in den UserDefaults
     var channelToken: String = ""
